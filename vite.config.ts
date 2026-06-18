@@ -17,6 +17,14 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // Proxy das chamadas /api para o BFF Python (pyzmq), que faz a ponte com a
+      // malha brokerless ZeroMQ. O backend roda em :3000 (ver backend/run.py).
+      proxy: {
+        '/api': {
+          target: process.env.BFF_URL || 'http://localhost:3000',
+          changeOrigin: true,
+        },
+      },
     },
   };
 });

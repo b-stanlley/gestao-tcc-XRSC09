@@ -137,7 +137,7 @@ export default function App() {
   useEffect(() => {
     if (token) {
       fetchData();
-      const interval = setInterval(() => fetchData(), 10000);
+      const interval = setInterval(() => fetchData(), 3000);
       return () => clearInterval(interval);
     }
   }, [token]);
@@ -183,7 +183,7 @@ export default function App() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ title: propTitle, summary: propSummary })
+        body: JSON.stringify({ title: propTitle, summary: propSummary, student_id: user.id })
       });
       const data = await res.json();
       if (res.ok) {
@@ -327,22 +327,21 @@ export default function App() {
       return;
     }
 
-    // Since our multer controller evaluates files, we simulate uploading perfectly
-    // or send standard structured content. Let's create actual form data stream.
-    const formData = new FormData();
-    const mockFileObj = new File([subDocText], "documento_sinal_tcc.pdf", { type: "text/plain" });
-    
-    formData.append('delivery_id', subDocDeliveryId);
-    formData.append('version', subDocVersion);
-    formData.append('file', mockFileObj);
-
+    // Envia a versão como texto para a malha brokerless: o BFF injeta o evento
+    // `versao_recebida`, que dispara a coreografia Documentos -> IA -> Notificações.
     try {
       const res = await fetch('/api/submissions', {
         method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: formData
+        body: JSON.stringify({
+          delivery_id: Number(subDocDeliveryId),
+          version: subDocVersion,
+          text: subDocText,
+          student_id: user.id
+        })
       });
       const data = await res.json();
       if (res.ok) {
@@ -394,7 +393,8 @@ export default function App() {
         body: JSON.stringify({
           submission_id: Number(selectedSubId),
           comment: advComment,
-          status: advStatus
+          status: advStatus,
+          student_id: selectedSub ? selectedSub.student_id : undefined
         })
       });
       const data = await res.json();

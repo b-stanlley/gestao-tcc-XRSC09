@@ -1,0 +1,6 @@
+# Backend SINTCC — malha brokerless ZeroMQ + BFF (Python puro / stdlib HTTP).
+# Offline por padrão: sem MySQL (fallback em memória) e LLM 'simulado' (em processo).
+pyzmq>=26.0
+# Opcionais (fonte da verdade real, fora do modo demo):
+# mysql-connector-python>=8.3   # persistência MySQL
+# requests>=2.31                # provedor de LLM via Ollama (LLM_PROVIDER=ollama)
