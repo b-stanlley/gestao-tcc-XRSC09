@@ -1,0 +1,8 @@
+{
+  "name": "Sistema Integrado de TCC",
+  "description": "Sistema para acompanhamento, entrega de rascunhos, cronogramas universitários e feedback assistido por Inteligência Artificial do Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
