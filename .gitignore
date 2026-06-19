@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Python (backend)
+__pycache__/
+*.pyc
+
+# uploads de runtime (nao versionar)
+uploads/
