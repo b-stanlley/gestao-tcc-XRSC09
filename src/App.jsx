@@ -254,8 +254,7 @@ export default function App() {
       return;
     }
 
-    const selectedProp = proposals.find(p => p.id === Number(advTaskProposalId)); // Garante a comparação de tipos corretos
-    const selectedProp = proposals.find(p => p.id === advTaskProposalId); // Compara como string (UUID)
+    const selectedProp = proposals.find(p => String(p.id) === String(advTaskProposalId)); // Garante a comparação de tipos corretos
     if (!selectedProp) {
       alert('TCC não encontrado.');
       return;
@@ -358,14 +357,14 @@ export default function App() {
         };
         setNotifications([newNotif, ...notifications]);
 
-        alert('Rascunho de TCC submetido! O Orientador receberá um alerta automático via barramento de eventos.');
+        alert('Documento submetido! Aguardando avaliação do orientador e feedback inteligente da IA.');
         setSubDocText('');
         setActiveTab('dashboard');
       } else {
-        alert('Erro ao subir documento mock: ' + data.message);
+        alert('Erro ao subir documento: ' + data.message);
       }
     } catch (err) {
-      alert('Enviado com sucesso via barramento de eventos!');
+      alert('Erro de conexão ao enviar o documento para o barramento de eventos.');
     }
   };
 
@@ -488,7 +487,7 @@ export default function App() {
               SINTCC
             </h1>
             <p className="text-xs text-slate-400 font-medium tracking-wide">
-              Sistema Integrado de TCC • Faculdade de Tecnologia
+              Sistema Integrado de TCC
             </p>
           </div>
         </div>
@@ -752,32 +751,6 @@ export default function App() {
             {/* Visão Geral Tab */}
             {activeTab === 'dashboard' && (
               <div className="space-y-6">
-                
-                {/* Visual Header Grid for user */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <h2 className="text-2xl font-bold text-white tracking-tight">Área de Trabalho integrada SINTCC</h2>
-                    <p className="text-sm text-slate-400">Seu resumo acadêmico e atualizações de processos em tempo real.</p>
-                  </div>
-                  
-                  <div className="flex items-center space-x-2 bg-slate-950 p-2 rounded-lg border border-slate-850">
-                    <span className="text-xs text-slate-400">Visualizar como:</span>
-                    <select 
-                      className="bg-slate-900 text-xs border border-slate-800 rounded p-1 text-emerald-400 font-semibold focus:outline-none"
-                      value={user.role}
-                      onChange={(e) => {
-                        let emailSim = 'estudante@univ.edu';
-                        if (e.target.value === 'coordinator') emailSim = 'coordenador@univ.edu';
-                        if (e.target.value === 'advisor') emailSim = 'orientador@univ.edu';
-                        handleLogin(emailSim, '123');
-                      }}
-                    >
-                      <option value="student">Aluno</option>
-                      <option value="advisor">Orientador</option>
-                      <option value="coordinator">Coordenador</option>
-                    </select>
-                  </div>
-                </div>
 
                 {/* Dashboard Stats */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -816,7 +789,7 @@ export default function App() {
                           if (d.id === 1 || d.name.toLowerCase().includes('proposta')) {
                             return proposals.some(p => p.student_id === user.id);
                           }
-                          return submissions.some(s => s.delivery_id === d.id && s.student_id === user.id);
+                          return submissions.some(s => String(s.delivery_id) === String(d.id) && s.student_id === user.id);
                         }).length} / ${deliveries.length}`
                       ) : (
                         deliveries.length
@@ -830,7 +803,7 @@ export default function App() {
                   <div className="bg-slate-950 p-5 rounded-xl border border-slate-850 relative overflow-hidden">
                     <FileText className="h-8 w-8 text-blue-500/20 absolute right-4 top-4" />
                     <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-                      {user?.role === 'student' ? 'Drafts Enviados' : 'Submissões Totais'}
+                      {user?.role === 'student' ? 'Documentos Enviados' : 'Submissões Totais'}
                     </p>
                     <p className="text-3xl font-extrabold text-white mt-1">{submissions.length}</p>
                     <p className="text-xs text-slate-400 mt-2">
@@ -858,11 +831,11 @@ export default function App() {
                     <div className="bg-slate-950 rounded-xl p-6 border border-slate-850 lg:col-span-7">
                       <h3 className="text-lg font-bold text-white mb-4 flex items-center">
                         <Calendar className="h-5 w-5 mr-2 text-emerald-400" />
-                        Cronograma e Etapas de Entrega do Curso
+                        Cronograma e Tarefas de Entrega
                       </h3>
                       
                       {deliveries.length === 0 ? (
-                        <p className="text-sm text-slate-500">Nenhum prazo cadastrado pelo coordenador.</p>
+                        <p className="text-sm text-slate-500">Nenhuma tarefa cadastrada pelo coordenador.</p>
                       ) : (
                         <div className="space-y-3">
                           {deliveries.map(d => {
@@ -871,7 +844,7 @@ export default function App() {
                               if (d.id === 1 || d.name.toLowerCase().includes('proposta')) {
                                 return proposals.some(p => p.student_id === user.id);
                               }
-                              return submissions.some(s => s.delivery_id === d.id && s.student_id === user.id);
+                              return submissions.some(s => String(s.delivery_id) === String(d.id) && s.student_id === user.id);
                             })();
                             
                             return (
@@ -976,85 +949,85 @@ export default function App() {
                                 <th className="px-3 py-3 text-right">Ação Corretiva</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-850">
-                              {(() => {
+                            <tbody className="divide-y divide-slate-850">                              {(() => {
                                 const studentIdsWithActivity = [...new Set([
                                   ...proposals.map(p => p.student_id),
                                   ...submissions.map(s => s.student_id)
                                 ])];
 
-                                if (studentIdsWithActivity.length === 0) {
+                                const pendingStudents = studentIdsWithActivity.filter(studentId => {
+                                  const prop = proposals.find(p => p.student_id === studentId);
+                                  const subs = submissions.filter(s => s.student_id === studentId);
+                                  const latestSub = subs.length > 0 ? subs[subs.length - 1] : null;
+                                  const latestFb = latestSub ? feedbacks.find(f => String(f.submission_id) === String(latestSub.id)) : null;
+                                  
+                                  const needsProposalReview = prop && prop.status === 'pending';
+                                  const needsSubmissionReview = latestSub && !latestFb;
+                                  
+                                  return needsProposalReview || needsSubmissionReview;
+                                });
+
+                                if (pendingStudents.length === 0) {
                                   return (
                                     <tr>
-                                      <td colSpan="6" className="text-center py-10 text-slate-500 text-xs italic">
-                                        Nenhum aluno submeteu propostas ou documentos ainda.
+                                      <td colSpan="6" className="text-center py-10 text-slate-500 text-xs italic bg-slate-900/10">
+                                        Nenhum aluno com avaliações pendentes no momento.
                                       </td>
                                     </tr>
                                   );
                                 }
 
-                                return studentIdsWithActivity.map(studentId => {
+                                return pendingStudents.map(studentId => {
                                   const prop = proposals.find(p => p.student_id === studentId);
                                   const subs = submissions.filter(s => s.student_id === studentId);
-                                const latestSub = subs.length > 0 ? subs[subs.length - 1] : null;
-                                const latestFb = latestSub ? feedbacks.find(f => f.submission_id === latestSub.id) : null;
-                                
-                                const needsProposalReview = prop && prop.status === 'pending';
-                                const needsSubmissionReview = latestSub && !latestFb;
+                                  const latestSub = subs.length > 0 ? subs[subs.length - 1] : null;
+                                  const latestFb = latestSub ? feedbacks.find(f => String(f.submission_id) === String(latestSub.id)) : null;
+                                  
+                                  const needsProposalReview = prop && prop.status === 'pending';
+                                  const needsSubmissionReview = latestSub && !latestFb;
 
-                                return (
-                                  <tr key={studentId} className="hover:bg-slate-900/40 transition">
-                                    <td className="px-3 py-3.5 font-semibold text-white whitespace-nowrap">
-                                      {getStudentName(studentId)}
-                                    </td>
-                                    <td className="px-3 py-3.5 max-w-[300px] truncate" title={prop?.title || 'Título não definido'}>
-                                      {prop?.title || 'Título não definido'}
-                                    </td>
-                                    <td className="px-3 py-3.5 text-center whitespace-nowrap">
-                                      {prop ? (
-                                        <span className={`inline-block px-2.5 py-0.5 rounded-full font-bold text-[9px] ${prop.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : prop.status === 'pending' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
-                                          {prop.status === 'approved' ? 'Aprovado' : prop.status === 'pending' ? 'Pendente Coordenador' : 'Ajustes Orientador'}
+                                  return (
+                                    <tr key={studentId} className="hover:bg-slate-900/40 transition">
+                                      <td className="px-3 py-3.5 font-semibold text-white whitespace-nowrap">
+                                        {getStudentName(studentId)}
+                                      </td>
+                                      <td className="px-3 py-3.5 max-w-[300px] truncate" title={prop?.title || 'Título não definido'}>
+                                        {prop?.title || 'Título não definido'}
+                                      </td>
+                                      <td className="px-3 py-3.5 text-center whitespace-nowrap">
+                                        <span className="inline-block px-2.5 py-0.5 rounded-full font-bold text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                          Aguardando
                                         </span>
-                                      ) : (
-                                        <span className="text-slate-600 italic">Sem proposta</span>
-                                      )}
-                                    </td>
-                                    <td className="px-3 py-3.5 whitespace-nowrap">
-                                      {latestSub ? (
-                                        <div className="flex items-center gap-1.5">
-                                          <FileText className="h-3.5 w-3.5 text-sky-400" />
-                                          <span className="text-slate-300">Versão {latestSub.version}.0 ({latestFb ? 'Avaliado' : 'Aguardando'})</span>
-                                        </div>
-                                      ) : (
-                                        <span className="text-slate-600 italic">Nenhum rascunho enviado</span>
-                                      )}
-                                    </td>
-                                    <td className="px-3 py-3.5 text-center">
-                                      <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/15 px-2 py-0.5 rounded text-[10px] font-mono">
-                                        Elegível & Ok
-                                      </span>
-                                    </td>
-                                    <td className="px-3 py-3.5 text-right whitespace-nowrap">
-                                      {needsProposalReview || needsSubmissionReview ? (
+                                      </td>
+                                      <td className="px-3 py-3.5 whitespace-nowrap">
+                                        {latestSub ? (
+                                          <div className="flex items-center gap-1.5">
+                                            <FileText className="h-3.5 w-3.5 text-sky-400" />
+                                            <span className="text-slate-300">Versão {latestSub.version}.0</span>
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-600 italic">Nenhum rascunho enviado</span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-3.5 text-center">
+                                        <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/15 px-2 py-0.5 rounded text-[10px] font-mono">
+                                          Elegível & Ok
+                                        </span>
+                                      </td>
+                                      <td className="px-3 py-3.5 text-right whitespace-nowrap">
                                         <div className="flex justify-end gap-2">
                                           {needsProposalReview && (
                                             <button
                                               onClick={() => {
                                                 setSelectedStudentId(studentId);
-                                                const matchingSub = submissions.find(s => s.student_id === studentId);
-                                                if (matchingSub) {
-                                                  setSelectedSubId(matchingSub.id.toString());
-                                                } else {
-                                                  setSelectedSubId('');
-                                                }
-                                                // Pre-fill comment with a theme review suggestion
+                                                setSelectedSubId('');
                                                 setAdvComment(`Parecer preliminar sobre o tema de TCC "${prop.title}": Proposta aprovada para desenvolvimento.`);
                                                 setAdvStatus('approved');
                                                 setActiveTab('advisor_feedback');
                                               }}
                                               className="bg-amber-600 hover:bg-amber-500 hover:scale-102 transform text-slate-950 font-bold px-2.5 py-1 rounded text-[10px] cursor-pointer transition select-none inline-block shadow-sm"
                                             >
-                                              Avaliar
+                                              Avaliar Proposta
                                             </button>
                                           )}
                                           {needsSubmissionReview && latestSub && (
@@ -1068,18 +1041,13 @@ export default function App() {
                                               }}
                                               className="bg-emerald-600 hover:bg-emerald-500 hover:scale-102 transform text-slate-950 font-bold px-2.5 py-1 rounded text-[10px] cursor-pointer transition select-none inline-block shadow-sm"
                                             >
-                                            Avaliar
+                                              Avaliar Documento
                                             </button>
                                           )}
                                         </div>
-                                      ) : (
-                                        <span className="text-emerald-400 text-[11px] font-semibold flex items-center justify-end gap-1 select-none">
-                                          <CheckCircle className="h-3.5 w-3.5 stroke-[2.5]" /> Avaliado
-                                        </span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
+                                      </td>
+                                    </tr>
+                                  );
                                 });
                               })()}
                             </tbody>
@@ -1087,14 +1055,7 @@ export default function App() {
                         </div>
                       </div>
                     )}
-                    
-                    <div className="mt-4 pt-4 border-t border-slate-900 bg-slate-900/30 p-3 rounded text-xs text-sky-300 border border-sky-950 flex items-start">
-                      <Sparkles className="h-4 w-4 mr-2 text-sky-400 flex-shrink-0" />
-                      <div>
-                        <span className="font-semibold block">Dica do Orientador IA:</span>
-                        Cole trechos na aba de IA para testar a consistência do referencial teórico.
-                      </div>
-                    </div>
+
                   </div>
 
                 </div>
@@ -1124,7 +1085,7 @@ export default function App() {
                           </tr>
                         ) : (
                           submissions.map(sub => {
-                            const correspondFb = feedbacks.find(f => f.submission_id === sub.id);
+                            const correspondFb = feedbacks.find(f => String(f.submission_id) === String(sub.id));
                             return (
                               <tr key={sub.id} className="hover:bg-slate-900/40">
                                 <td className="px-4 py-3.5 font-semibold text-white">Etapa #{sub.delivery_id}</td>
@@ -1134,13 +1095,27 @@ export default function App() {
                                 <td className="px-4 py-3.5">
                                   {correspondFb ? (
                                     <div className="space-y-1">
-                                      <span className={`inline-block text-[10px] px-2 py-0.5 rounded font-bold capitalize ${correspondFb.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
-                                        {correspondFb.status === 'approved' ? 'Aprovada' : 'Ajustar Obra'}
-                                      </span>
+                                      {correspondFb.status === 'approved' && (
+                                        <span className="inline-block text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                          Aprovado
+                                        </span>
+                                      )}
+                                      {correspondFb.status === 'corrections' && (
+                                        <span className="inline-block text-[10px] px-2 py-0.5 rounded font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                          Ajustar
+                                        </span>
+                                      )}
+                                      {correspondFb.status === 'rejected' && (
+                                        <span className="inline-block text-[10px] px-2 py-0.5 rounded font-bold bg-red-500/10 text-red-400 border border-red-500/20">
+                                          Reprovado
+                                        </span>
+                                      )}
                                       <p className="text-[11px] text-slate-400 block line-clamp-1">"{correspondFb.comment}"</p>
                                     </div>
                                   ) : (
-                                    <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Em Análise Técnica</span>
+                                    <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded font-bold">
+                                      Aguardando
+                                    </span>
                                   )}
                                 </td>
                               </tr>
@@ -1207,12 +1182,12 @@ export default function App() {
                           </div>
 
                           <div>
-                            <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Resumo Científico / Metodologia Preliminar</label>
+                            <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Resumo / Descrição</label>
                             <textarea 
                               rows="6"
                               value={propSummary} 
                               onChange={(e) => setPropSummary(e.target.value)}
-                              placeholder="Escreva sobre o problema de pesquisa, o referencial teórico que pretende utilizar e os resultados esperados..."
+                              placeholder="Escreva sobre o tema que deseja explorar, a metodologia pretendida e os objetivos gerais do seu TCC. Seja claro e conciso para facilitar a avaliação inicial."
                               className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm focus:outline-none focus:border-emerald-500 text-white" 
                               required 
                             ></textarea>
@@ -1230,7 +1205,7 @@ export default function App() {
                             type="submit" 
                             className="bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold py-2.5 px-6 rounded-lg text-sm transition cursor-pointer"
                           >
-                            {hasProposal ? 'Salvar Alterações da Proposta' : 'Submeter Tema para Faculdade'}
+                            {hasProposal ? 'Salvar Alterações da Proposta' : 'Submeter Proposta'}
                           </button>
                         </form>
                       </div>
@@ -1323,17 +1298,13 @@ export default function App() {
             {/* Submissões de Rascunhos Tab */}
             {activeTab === 'submissions' && (
               <div className="max-w-3xl space-y-6">
-                <div>
-                  <h3 className="text-xl font-bold text-white">Submissão Oficial do Volume Textual</h3>
-                  <p className="text-sm text-slate-400 mt-1">Envie o rascunho em mock de acordo com as entregas liberadas no Colegiado.</p>
-                </div>
 
                 <div className="bg-slate-950 p-6 rounded-xl border border-slate-850">
                   <form onSubmit={handleUploadDocument} className="space-y-4">
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Etapa do Cronograma</label>
+                        <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Tarefa do Cronograma</label>
                         <select 
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-white focus:border-emerald-500"
                           value={subDocDeliveryId}
@@ -1348,7 +1319,7 @@ export default function App() {
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Versão Científica</label>
+                        <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Versão</label>
                         <select 
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-white focus:border-emerald-500"
                           value={subDocVersion}
@@ -1362,12 +1333,12 @@ export default function App() {
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase font-mono">Simulador de Corpo de Texto TCC</label>
+                      <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase font-mono">Corpo de Texto</label>
                       <textarea 
                         rows="5"
                         value={subDocText} 
                         onChange={(e) => setSubDocText(e.target.value)}
-                        placeholder="Insira rascunhos de capítulos inteiros para que seu orientador possa receber a notificação..."
+                        placeholder="Insira o conteúdo de texto do documento..."
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-emerald-500" 
                         required 
                       ></textarea>
@@ -1499,7 +1470,7 @@ export default function App() {
                           if (sub) setSelectedStudentId(sub.student_id);
                         }}
                       >
-                        <option value="">-- Escolher Submissão do Aluno --</option>
+                        <option value="">Escolher Submissão do Aluno</option>
                         {submissions.map(sub => (
                           <option key={sub.id} value={sub.id}>
                             {getStudentName(sub.student_id)} - Versão {sub.version} (Etapa #{sub.delivery_id})
@@ -1508,8 +1479,8 @@ export default function App() {
                       </select>
                     </div>
 
-                    {/* Mostra dados do Tema do Aluno e descrição quando selecionado */}
-                    {selectedProposal && (
+                    {/* Mostra dados do Tema do Aluno e descrição quando selecionado e não estiver avaliando um documento */}
+                    {selectedProposal && !selectedSubId && (
                       <div className="bg-slate-900/60 p-5 rounded-lg border border-emerald-500/30 space-y-3.5 my-3 animate-fadeIn">
                         <div className="flex items-center space-x-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
                           <BookOpen className="h-4 w-4" />
@@ -1544,7 +1515,7 @@ export default function App() {
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Julgamento do Orientador</label>
+                        <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Parecer do Orientador</label>
                         <select 
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-white focus:border-teal-500"
                           value={advStatus}
@@ -1557,20 +1528,14 @@ export default function App() {
                         </select>
                       </div>
 
-                      <div className="flex items-center pt-5">
-                        <span className="text-xs text-slate-400 flex items-center">
-                          <CheckCircle className="h-4 w-4 mr-1 text-emerald-400" /> Ativa fluxo de envio no barramento
-                        </span>
-                      </div>
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Comentários e Diretivas Acadêmicas</label>
+                      <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Comentários</label>
                       <textarea 
                         rows="4"
                         value={advComment}
                         onChange={(e) => setAdvComment(e.target.value)}
-                        placeholder="Recomendo revisar o referencial teórico. A metodologia de inteligência artificial de TCC precisa estar fundamentada nas principais diretrizes da SBC..."
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-teal-400"
                         required
                       ></textarea>
@@ -1580,7 +1545,7 @@ export default function App() {
                       type="submit" 
                       className="bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold py-2.5 px-6 rounded-lg text-sm transition cursor-pointer"
                     >
-                      Postar Parecer Oficial
+                      Avaliar Documento
                     </button>
                   </form>
                 </div>
@@ -1590,22 +1555,13 @@ export default function App() {
             {/* Criar Tarefa Especializada (Advisor) */}
             {activeTab === 'create_task' && (
               <div className="max-w-3xl space-y-6">
-                <div>
-                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                    <PlusCircle className="h-6 w-6 text-emerald-400" />
-                    Gerenciamento Acadêmico — Criar Nova Tarefa de Acompanhamento
-                  </h3>
-                  <p className="text-sm text-slate-400 mt-1">
-                    Defina prazos de entrega e configure os requisitos de novos capítulos, relatórios ou versões finais para seus alunos orientados.
-                  </p>
-                </div>
 
                 <div className="bg-slate-950 p-6 rounded-xl border border-slate-850">
                   <form onSubmit={handleCreateAdvisorTask} className="space-y-5">
                     
                     <div>
                       <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase tracking-wide">
-                        Selecionar TCC e Aluno Alvo
+                        Selecionar TCC ORIENTADO para esta Tarefa
                       </label>
                       <select 
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-white focus:border-emerald-500"
@@ -1625,7 +1581,7 @@ export default function App() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase tracking-wide">
-                          Prazo Limite de Entrega (Deadline)
+                          Prazo Limite de Entrega
                         </label>
                         <input 
                           type="date"
@@ -1657,13 +1613,12 @@ export default function App() {
 
                     <div>
                       <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase tracking-wide">
-                        Instruções Acadêmicas e Detalhes da Entrega
+                        Instruções para Entrega
                       </label>
                       <textarea 
                         rows="5"
                         value={advTaskDesc}
                         onChange={(e) => setAdvTaskDesc(e.target.value)}
-                        placeholder="Insira as metas e diretrizes que o aluno deve seguir para esta submissão específica (ex: 'Enviar o capítulo 3 de Metodologia revisado conforme as notas da banca preliminar, incluindo a explicação das equações matemáticas dos algoritmos de aprendizado supervisionado.')"
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-emerald-450 font-sans"
                         required
                       ></textarea>
@@ -1685,7 +1640,7 @@ export default function App() {
                         type="submit" 
                         className="bg-emerald-600 hover:bg-emerald-500 hover:scale-101 transform text-slate-950 font-bold py-2.5 px-6 rounded-lg text-sm transition cursor-pointer"
                       >
-                        Criar & Publicar Tarefa
+                      Publicar Tarefa
                       </button>
                     </div>
 
