@@ -254,7 +254,7 @@ export default function App() {
       return;
     }
 
-    const selectedProp = proposals.find(p => p.id === Number(advTaskProposalId)); // Garante a comparação de tipos corretos
+    const selectedProp = proposals.find(p => String(p.id) === String(advTaskProposalId)); // Garante a comparação de tipos corretos
     if (!selectedProp) {
       alert('TCC não encontrado.');
       return;
@@ -357,14 +357,14 @@ export default function App() {
         };
         setNotifications([newNotif, ...notifications]);
 
-        alert('Rascunho de TCC submetido! O Orientador receberá um alerta automático via barramento de eventos.');
+        alert('Documento submetido! Aguardando avaliação do orientador e feedback inteligente da IA.');
         setSubDocText('');
         setActiveTab('dashboard');
       } else {
-        alert('Erro ao subir documento mock: ' + data.message);
+        alert('Erro ao subir documento: ' + data.message);
       }
     } catch (err) {
-      alert('Enviado com sucesso via barramento de eventos!');
+      alert('Erro de conexão ao enviar o documento para o barramento de eventos.');
     }
   };
 
@@ -789,7 +789,7 @@ export default function App() {
                           if (d.id === 1 || d.name.toLowerCase().includes('proposta')) {
                             return proposals.some(p => p.student_id === user.id);
                           }
-                          return submissions.some(s => s.delivery_id === d.id && s.student_id === user.id);
+                          return submissions.some(s => String(s.delivery_id) === String(d.id) && s.student_id === user.id);
                         }).length} / ${deliveries.length}`
                       ) : (
                         deliveries.length
@@ -844,7 +844,7 @@ export default function App() {
                               if (d.id === 1 || d.name.toLowerCase().includes('proposta')) {
                                 return proposals.some(p => p.student_id === user.id);
                               }
-                              return submissions.some(s => s.delivery_id === d.id && s.student_id === user.id);
+                              return submissions.some(s => String(s.delivery_id) === String(d.id) && s.student_id === user.id);
                             })();
                             
                             return (
@@ -949,85 +949,85 @@ export default function App() {
                                 <th className="px-3 py-3 text-right">Ação Corretiva</th>
                               </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-850">
-                              {(() => {
+                            <tbody className="divide-y divide-slate-850">                              {(() => {
                                 const studentIdsWithActivity = [...new Set([
                                   ...proposals.map(p => p.student_id),
                                   ...submissions.map(s => s.student_id)
                                 ])];
 
-                                if (studentIdsWithActivity.length === 0) {
+                                const pendingStudents = studentIdsWithActivity.filter(studentId => {
+                                  const prop = proposals.find(p => p.student_id === studentId);
+                                  const subs = submissions.filter(s => s.student_id === studentId);
+                                  const latestSub = subs.length > 0 ? subs[subs.length - 1] : null;
+                                  const latestFb = latestSub ? feedbacks.find(f => String(f.submission_id) === String(latestSub.id)) : null;
+                                  
+                                  const needsProposalReview = prop && prop.status === 'pending';
+                                  const needsSubmissionReview = latestSub && !latestFb;
+                                  
+                                  return needsProposalReview || needsSubmissionReview;
+                                });
+
+                                if (pendingStudents.length === 0) {
                                   return (
                                     <tr>
-                                      <td colSpan="6" className="text-center py-10 text-slate-500 text-xs italic">
-                                        Nenhum aluno submeteu propostas ou documentos ainda.
+                                      <td colSpan="6" className="text-center py-10 text-slate-500 text-xs italic bg-slate-900/10">
+                                        Nenhum aluno com avaliações pendentes no momento.
                                       </td>
                                     </tr>
                                   );
                                 }
 
-                                return studentIdsWithActivity.map(studentId => {
+                                return pendingStudents.map(studentId => {
                                   const prop = proposals.find(p => p.student_id === studentId);
                                   const subs = submissions.filter(s => s.student_id === studentId);
-                                const latestSub = subs.length > 0 ? subs[subs.length - 1] : null;
-                                const latestFb = latestSub ? feedbacks.find(f => f.submission_id === latestSub.id) : null;
-                                
-                                const needsProposalReview = prop && prop.status === 'pending';
-                                const needsSubmissionReview = latestSub && !latestFb;
+                                  const latestSub = subs.length > 0 ? subs[subs.length - 1] : null;
+                                  const latestFb = latestSub ? feedbacks.find(f => String(f.submission_id) === String(latestSub.id)) : null;
+                                  
+                                  const needsProposalReview = prop && prop.status === 'pending';
+                                  const needsSubmissionReview = latestSub && !latestFb;
 
-                                return (
-                                  <tr key={studentId} className="hover:bg-slate-900/40 transition">
-                                    <td className="px-3 py-3.5 font-semibold text-white whitespace-nowrap">
-                                      {getStudentName(studentId)}
-                                    </td>
-                                    <td className="px-3 py-3.5 max-w-[300px] truncate" title={prop?.title || 'Título não definido'}>
-                                      {prop?.title || 'Título não definido'}
-                                    </td>
-                                    <td className="px-3 py-3.5 text-center whitespace-nowrap">
-                                      {prop ? (
-                                        <span className={`inline-block px-2.5 py-0.5 rounded-full font-bold text-[9px] ${prop.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : prop.status === 'pending' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
-                                          {prop.status === 'approved' ? 'Aprovado' : prop.status === 'pending' ? 'Pendente Coordenador' : 'Ajustes Orientador'}
+                                  return (
+                                    <tr key={studentId} className="hover:bg-slate-900/40 transition">
+                                      <td className="px-3 py-3.5 font-semibold text-white whitespace-nowrap">
+                                        {getStudentName(studentId)}
+                                      </td>
+                                      <td className="px-3 py-3.5 max-w-[300px] truncate" title={prop?.title || 'Título não definido'}>
+                                        {prop?.title || 'Título não definido'}
+                                      </td>
+                                      <td className="px-3 py-3.5 text-center whitespace-nowrap">
+                                        <span className="inline-block px-2.5 py-0.5 rounded-full font-bold text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                          Aguardando
                                         </span>
-                                      ) : (
-                                        <span className="text-slate-600 italic">Sem proposta</span>
-                                      )}
-                                    </td>
-                                    <td className="px-3 py-3.5 whitespace-nowrap">
-                                      {latestSub ? (
-                                        <div className="flex items-center gap-1.5">
-                                          <FileText className="h-3.5 w-3.5 text-sky-400" />
-                                          <span className="text-slate-300">Versão {latestSub.version}.0 ({latestFb ? 'Avaliado' : 'Aguardando'})</span>
-                                        </div>
-                                      ) : (
-                                        <span className="text-slate-600 italic">Nenhum rascunho enviado</span>
-                                      )}
-                                    </td>
-                                    <td className="px-3 py-3.5 text-center">
-                                      <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/15 px-2 py-0.5 rounded text-[10px] font-mono">
-                                        Elegível & Ok
-                                      </span>
-                                    </td>
-                                    <td className="px-3 py-3.5 text-right whitespace-nowrap">
-                                      {needsProposalReview || needsSubmissionReview ? (
+                                      </td>
+                                      <td className="px-3 py-3.5 whitespace-nowrap">
+                                        {latestSub ? (
+                                          <div className="flex items-center gap-1.5">
+                                            <FileText className="h-3.5 w-3.5 text-sky-400" />
+                                            <span className="text-slate-300">Versão {latestSub.version}.0</span>
+                                          </div>
+                                        ) : (
+                                          <span className="text-slate-600 italic">Nenhum rascunho enviado</span>
+                                        )}
+                                      </td>
+                                      <td className="px-3 py-3.5 text-center">
+                                        <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/15 px-2 py-0.5 rounded text-[10px] font-mono">
+                                          Elegível & Ok
+                                        </span>
+                                      </td>
+                                      <td className="px-3 py-3.5 text-right whitespace-nowrap">
                                         <div className="flex justify-end gap-2">
                                           {needsProposalReview && (
                                             <button
                                               onClick={() => {
                                                 setSelectedStudentId(studentId);
-                                                const matchingSub = submissions.find(s => s.student_id === studentId);
-                                                if (matchingSub) {
-                                                  setSelectedSubId(matchingSub.id.toString());
-                                                } else {
-                                                  setSelectedSubId('');
-                                                }
-                                                // Pre-fill comment with a theme review suggestion
+                                                setSelectedSubId('');
                                                 setAdvComment(`Parecer preliminar sobre o tema de TCC "${prop.title}": Proposta aprovada para desenvolvimento.`);
                                                 setAdvStatus('approved');
                                                 setActiveTab('advisor_feedback');
                                               }}
                                               className="bg-amber-600 hover:bg-amber-500 hover:scale-102 transform text-slate-950 font-bold px-2.5 py-1 rounded text-[10px] cursor-pointer transition select-none inline-block shadow-sm"
                                             >
-                                              Avaliar
+                                              Avaliar Proposta
                                             </button>
                                           )}
                                           {needsSubmissionReview && latestSub && (
@@ -1041,18 +1041,13 @@ export default function App() {
                                               }}
                                               className="bg-emerald-600 hover:bg-emerald-500 hover:scale-102 transform text-slate-950 font-bold px-2.5 py-1 rounded text-[10px] cursor-pointer transition select-none inline-block shadow-sm"
                                             >
-                                            Avaliar
+                                              Avaliar Documento
                                             </button>
                                           )}
                                         </div>
-                                      ) : (
-                                        <span className="text-emerald-400 text-[11px] font-semibold flex items-center justify-end gap-1 select-none">
-                                          <CheckCircle className="h-3.5 w-3.5 stroke-[2.5]" /> Avaliado
-                                        </span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                );
+                                      </td>
+                                    </tr>
+                                  );
                                 });
                               })()}
                             </tbody>
@@ -1090,7 +1085,7 @@ export default function App() {
                           </tr>
                         ) : (
                           submissions.map(sub => {
-                            const correspondFb = feedbacks.find(f => f.submission_id === sub.id);
+                            const correspondFb = feedbacks.find(f => String(f.submission_id) === String(sub.id));
                             return (
                               <tr key={sub.id} className="hover:bg-slate-900/40">
                                 <td className="px-4 py-3.5 font-semibold text-white">Etapa #{sub.delivery_id}</td>
@@ -1100,13 +1095,27 @@ export default function App() {
                                 <td className="px-4 py-3.5">
                                   {correspondFb ? (
                                     <div className="space-y-1">
-                                      <span className={`inline-block text-[10px] px-2 py-0.5 rounded font-bold capitalize ${correspondFb.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}>
-                                        {correspondFb.status === 'approved' ? 'Aprovada' : 'Ajustar Obra'}
-                                      </span>
+                                      {correspondFb.status === 'approved' && (
+                                        <span className="inline-block text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                          Aprovado
+                                        </span>
+                                      )}
+                                      {correspondFb.status === 'corrections' && (
+                                        <span className="inline-block text-[10px] px-2 py-0.5 rounded font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                          Ajustar
+                                        </span>
+                                      )}
+                                      {correspondFb.status === 'rejected' && (
+                                        <span className="inline-block text-[10px] px-2 py-0.5 rounded font-bold bg-red-500/10 text-red-400 border border-red-500/20">
+                                          Reprovado
+                                        </span>
+                                      )}
                                       <p className="text-[11px] text-slate-400 block line-clamp-1">"{correspondFb.comment}"</p>
                                     </div>
                                   ) : (
-                                    <span className="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded">Em Análise Técnica</span>
+                                    <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded font-bold">
+                                      Aguardando
+                                    </span>
                                   )}
                                 </td>
                               </tr>
@@ -1470,8 +1479,8 @@ export default function App() {
                       </select>
                     </div>
 
-                    {/* Mostra dados do Tema do Aluno e descrição quando selecionado */}
-                    {selectedProposal && (
+                    {/* Mostra dados do Tema do Aluno e descrição quando selecionado e não estiver avaliando um documento */}
+                    {selectedProposal && !selectedSubId && (
                       <div className="bg-slate-900/60 p-5 rounded-lg border border-emerald-500/30 space-y-3.5 my-3 animate-fadeIn">
                         <div className="flex items-center space-x-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
                           <BookOpen className="h-4 w-4" />

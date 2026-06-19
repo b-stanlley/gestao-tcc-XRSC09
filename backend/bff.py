@@ -160,19 +160,47 @@ def _loop_sub():
                     elif topico == TipoEvento.PROPOSTA_REJEITADA.value:
                         if aluno in _proposals_store: _proposals_store[aluno]["status"] = "adjustments"
                     elif topico == TipoEvento.VERSAO_SUBMETIDA.value:
-                        # Evita duplicatas simples no rascunho de demo
-                        if not any(s['id'] == p.get('id') for s in _submissions_store if p.get('id')):
+                        # Evita duplicatas buscando por student_id e delivery_id
+                        existente = None
+                        ent_id = p.get("entrega_id")
+                        for s in _submissions_store:
+                            if str(s.get("student_id")) == str(aluno) and str(s.get("delivery_id")) == str(ent_id):
+                                existente = s
+                                break
+                        
+                        if existente:
+                            existente["id"] = p.get("versao_id") or existente["id"]
+                            existente["version"] = p.get("numero") or existente["version"]
+                            if p.get("texto"):
+                                existente["text"] = p.get("texto")
+                        else:
                             _submissions_store.append({
-                                "id": p.get("id", int(time.time())), "delivery_id": p.get("entrega_id"),
-                                "student_id": aluno, "file_path": "uploads/documento.pdf",
-                                "version": p.get("numero"), "text": p.get("texto"),
+                                "id": p.get("versao_id") or p.get("id") or int(time.time()),
+                                "delivery_id": ent_id,
+                                "student_id": aluno,
+                                "file_path": "uploads/documento.pdf",
+                                "version": p.get("numero"),
+                                "text": p.get("texto"),
                                 "created_at": time.strftime("%d/%m/%Y")
                             })
                     elif topico == TipoEvento.FEEDBACK_ENVIADO.value:
-                        if not any(f['id'] == p.get('id') for f in _feedbacks_store if p.get('id')):
+                        existente = None
+                        sub_id = p.get("versao_id")
+                        for f in _feedbacks_store:
+                            if str(f.get("submission_id")) == str(sub_id) and sub_id is not None:
+                                existente = f
+                                break
+                        
+                        if existente:
+                            existente["id"] = p.get("id") or existente["id"]
+                            existente["comment"] = p.get("comentario") or existente["comment"]
+                            existente["status"] = "approved" if p.get("decisao") == "aprovado" else "corrections"
+                        else:
                             _feedbacks_store.append({
-                                "id": p.get("id", int(time.time())), "submission_id": p.get("versao_id"),
-                                "advisor_id": 3, "comment": p.get("comentario"),
+                                "id": p.get("id", int(time.time())),
+                                "submission_id": sub_id,
+                                "advisor_id": 3,
+                                "comment": p.get("comentario"),
                                 "status": "approved" if p.get("decisao") == "aprovado" else "corrections",
                                 "created_at": time.strftime("%d/%m/%Y")
                             })
@@ -232,9 +260,36 @@ def login(body):
 def submeter_versao(body, claims):
     aluno = body.get("student_id") or (claims or {}).get("id")
     texto = body.get("text") or body.get("texto") or ""
+    delivery_id = body.get("delivery_id")
+    
+    sub_id = int(time.time()) % 100000
+    
+    # Salva na lista em memória de imediato para resolver condição de corrida no polling do React
+    with _store_lock:
+        existente = None
+        for s in _submissions_store:
+            if str(s.get("student_id")) == str(aluno) and str(s.get("delivery_id")) == str(delivery_id):
+                existente = s
+                break
+        
+        if existente:
+            existente["text"] = texto
+            existente["version"] = existente.get("version", 1) + 1
+        else:
+            _submissions_store.append({
+                "id": sub_id,
+                "delivery_id": delivery_id,
+                "student_id": aluno,
+                "file_path": "uploads/documento.pdf",
+                "version": 1,
+                "text": texto,
+                "created_at": time.strftime("%d/%m/%Y")
+            })
+
     _publicar(TipoEvento.VERSAO_RECEBIDA, aluno, "submeter",
-              {"texto": texto, "tipo": body.get("tipo", "desenvolvimento"), "caracteres": len(texto)})
-    return 202, {"success": True, "submission_id": int(time.time()) % 100000}
+              {"texto": texto, "tipo": body.get("tipo", "desenvolvimento"), "caracteres": len(texto),
+               "entrega_id": delivery_id})
+    return 202, {"success": True, "submission_id": sub_id}
 
 
 def submeter_proposta(body, claims):
@@ -261,18 +316,45 @@ def registrar_cronograma(body, claims):
 def enviar_parecer(body, claims):
     aluno = body.get("student_id") or (claims or {}).get("id")
     status = body.get("status", "")
+    comment = body.get("comment") or body.get("comentario") or ""
+    submission_id = body.get("submission_id")
+    
+    fb_id = int(time.time()) % 100000
+    
+    # Salva na lista em memória de feedbacks síncronamente para evitar condição de corrida no polling do React
+    with _store_lock:
+        existente = None
+        for f in _feedbacks_store:
+            if str(f.get("submission_id")) == str(submission_id) and f.get("submission_id") is not None:
+                existente = f
+                break
+        
+        if existente:
+            existente["comment"] = comment
+            existente["status"] = status
+        else:
+            _feedbacks_store.append({
+                "id": fb_id,
+                "submission_id": submission_id,
+                "advisor_id": 3,
+                "comment": comment,
+                "status": status,
+                "created_at": time.strftime("%d/%m/%Y")
+            })
+
     decisao = "aprovado" if status == "approved" else "correcoes"
     _publicar(TipoEvento.PARECER_RECEBIDO, aluno, "registrar_parecer",
-              {"comentario": body.get("comment", ""), "feedback": body.get("comment", ""),
+              {"comentario": comment, "feedback": comment,
                "decisao": decisao, "criterios": body.get("criterios") or {},
-               "nota": body.get("nota"), "versao_id": body.get("submission_id")})
+               "nota": body.get("nota"), "versao_id": submission_id})
 
     # Notifica o serviço de propostas para atualizar o status do TCC na malha
     _publicar(TipoEvento.PROPOSTA_AVALIADA, aluno, "avaliar_proposta",
               {"decisao": "aprovada" if status == "approved" else "rejeitada", 
-               "motivo": body.get("comment", "")})
+               "motivo": comment})
 
-    return 202, {"success": True, "feedback_id": int(time.time()) % 100000}
+    return 202, {"success": True, "feedback_id": fb_id}
+
 
 
 def definir_banca(body, claims):
