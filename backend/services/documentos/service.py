@@ -44,7 +44,7 @@ class RepositorioDocumentos:
         self._repo = repo or Repositorio()
 
     def evento_novo(self, evento):
-        return self._repo.registrar_evento(evento)        # idempotencia (RNF05)
+        return self._repo.registrar_evento(evento)  # idempotencia (RNF05)
 
     def salvar(self, tcc_id, versao: "Versao") -> int:
         numero = self._repo.salvar_versao(tcc_id, versao.arquivo, versao.tipo)
@@ -67,7 +67,7 @@ class ServicoDocumentos:
         self.sub = self.ctx.socket(zmq.SUB)
         self.sub.connect(get_zmq_address("gateway"))
         self.sub.setsockopt_string(zmq.SUBSCRIBE, TipoEvento.VERSAO_RECEBIDA.value)
-        self.pub = self.ctx.socket(zmq.PUB)
+        self.pub = self.ctx.socket(zmq.PUB) # Publica em seu próprio canal
         self.pub.bind(get_zmq_address("documentos", "bind"))
         self.repo = RepositorioDocumentos()
         log.info("no ar | SUB gateway:versao_recebida -> versiona/persiste -> PUB versao_submetida")
@@ -86,7 +86,7 @@ class ServicoDocumentos:
 
     def consumir(self, dados: dict):
         """Reage a um versao_recebida: versiona, persiste e publica versao_submetida."""
-        if not self.repo.evento_novo(dados):                # idempotencia
+        if not self.repo.evento_novo(dados):  # idempotencia
             log.info("evento ja processado; ignorado (idempotencia)")
             return
         documento = Documento(tcc_id=dados["aluno_id"])

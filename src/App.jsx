@@ -61,6 +61,7 @@ export default function App() {
   
   // Advisor Forms
   const [selectedSubId, setSelectedSubId] = useState('');
+  const [selectedStudentId, setSelectedStudentId] = useState(null);
   const [advComment, setAdvComment] = useState('');
   const [advStatus, setAdvStatus] = useState('approved');
 
@@ -80,12 +81,9 @@ export default function App() {
   };
 
   const selectedSub = submissions.find(s => s.id.toString() === selectedSubId);
-  const selectedProposal = selectedSub ? proposals.find(p => p.student_id === selectedSub.student_id) : null;
+  const selectedProposal = proposals.find(p => p.student_id === (selectedStudentId || (selectedSub ? selectedSub.student_id : null)));
 
   const getStudentName = (studentId) => {
-    if (studentId === 1) return 'Aluno Universitário';
-    if (studentId === 4) return 'Mariana Costa Santana';
-    if (studentId === 5) return 'Rodrigo Medeiros Souza';
     return `Estudante #${studentId}`;
   };
 
@@ -103,35 +101,28 @@ export default function App() {
         const notifData = await notifRes.json();
         setNotifications(notifData);
       }
-      
-      // Since our emulated db endpoints are queried through get requests on these:
-      // We will perform client-side queries or simulated fetches of other resources
-      // which we can store/update inside memory pool via matching calls.
-      // E.g., we can read proposals etc from backend if we implement local updates
+
+      // Sincroniza o estado completo das entidades do TCC a partir do Read-Model do BFF
+      const endpoints = {
+        'proposals': setProposals,
+        'submissions': setSubmissions,
+        'feedbacks': setFeedbacks,
+        'deliveries': setDeliveries
+      };
+
+      for (const [path, setter] of Object.entries(endpoints)) {
+        const res = await fetch(`/api/${path}`, {
+          headers: { 'Authorization': `Bearer ${currToken}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setter(data);
+        }
+      }
     } catch (e) {
-      console.warn('Erro ao atualizar notificações automáticas:', e);
+      console.warn('Erro ao sincronizar dados do portal:', e);
     }
   };
-
-  // Populate INITIAL illustrative state lists that syncs beautifully with our In-Memory DB
-  useEffect(() => {
-    // Basic structural data simulation reflecting database in-memory pool
-    setProposals([
-      { id: 1, student_id: 1, title: 'IA Generativa na Avaliação Escolar', summary: 'Pesquisa sobre grandes modelos de linguagem aplicados ao ensino brasileiro.', status: 'pending' },
-      { id: 2, student_id: 4, title: 'IoT no Monitoramento de Barragens de Rejeito', summary: 'Desenvolvimento de sensores de Internet das Coisas para detectar movimentos em barragens de rejeitos de mineração em tempo real.', status: 'pending' },
-      { id: 3, student_id: 5, title: 'Blockchain aplicado à Rastreabilidade Logística', summary: 'Uso de contratos inteligentes na blockchain para garantir integridade e transparência em cadeias de suprimentos farmacêuticas.', status: 'approved' }
-    ]);
-    setDeliveries([
-      { id: 1, name: 'Entrega 1: Proposta de TCC', description: 'Cadastrar o título, justificativa e o resumo da proposta do seu TCC para aprovação do orientador.', deadline: '2026-06-30' }
-    ]);
-    setSubmissions([
-      { id: 1, delivery_id: 1, student_id: 1, file_path: 'uploads/monografia_v1.pdf', version: 1.0, created_at: new Date().toLocaleDateString() },
-      { id: 2, delivery_id: 1, student_id: 4, file_path: 'uploads/iot_sensor_relatorio_v1.pdf', version: 1.0, created_at: new Date().toLocaleDateString() }
-    ]);
-    setFeedbacks([
-      { id: 1, submission_id: 1, advisor_id: 3, comment: 'Interessante proposta inicial! Lembre-se de mapear as referências da ABNT.', status: 'approved', created_at: new Date().toLocaleDateString() }
-    ]);
-  }, []);
 
   // Periodic notifications ticker
   useEffect(() => {
@@ -168,6 +159,7 @@ export default function App() {
   const logout = () => {
     setToken(null);
     setUser(null);
+    setSelectedStudentId(null);
     setAiAnalysisResult('');
   };
 
@@ -262,7 +254,8 @@ export default function App() {
       return;
     }
 
-    const selectedProp = proposals.find(p => p.id === Number(advTaskProposalId));
+    const selectedProp = proposals.find(p => p.id === Number(advTaskProposalId)); // Garante a comparação de tipos corretos
+    const selectedProp = proposals.find(p => p.id === advTaskProposalId); // Compara como string (UUID)
     if (!selectedProp) {
       alert('TCC não encontrado.');
       return;
@@ -351,6 +344,7 @@ export default function App() {
           student_id: user.id,
           file_path: 'uploads/documento_sinal_tcc.pdf',
           version: Number(subDocVersion),
+          text: subDocText,
           created_at: new Date().toLocaleDateString()
         };
         setSubmissions([newSub, ...submissions]);
@@ -378,8 +372,8 @@ export default function App() {
   // Submit Review/Feedback (Advisor evaluative step)
   const handleSaveFeedback = async (e) => {
     e.preventDefault();
-    if (!selectedSubId || !advComment) {
-      alert('Escolha o trabalho do aluno e escreva seu parecer técnico.');
+    if (!selectedStudentId || !advComment) {
+      alert('Selecione um aluno ou trabalho e escreva seu parecer técnico.');
       return;
     }
 
@@ -390,11 +384,11 @@ export default function App() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          submission_id: Number(selectedSubId),
+        body: JSON.stringify({ // Envia submission_id apenas se houver um selecionado
+          submission_id: selectedSubId ? Number(selectedSubId) : null,
           comment: advComment,
           status: advStatus,
-          student_id: selectedSub ? selectedSub.student_id : undefined
+          student_id: selectedStudentId // Sempre envia o ID do aluno selecionado
         })
       });
       const data = await res.json();
@@ -410,18 +404,14 @@ export default function App() {
         };
         setFeedbacks([newFb, ...feedbacks]);
 
-        // Autoupdate status of local proposals
-        const selectedSubmission = submissions.find(s => s.id === Number(selectedSubId));
-        let studentName = "Aluno";
-        if (selectedSubmission) {
-          studentName = getStudentName(selectedSubmission.student_id);
-          setProposals(proposals.map(p => {
-            if (p.student_id === selectedSubmission.student_id) {
-              return { ...p, status: advStatus === 'approved' ? 'approved' : 'adjustments' };
-            }
-            return p;
-          }));
+      // Atualiza o status da proposta localmente baseando-se no aluno selecionado
+      const studentName = getStudentName(selectedStudentId);
+      setProposals(proposals.map(p => {
+        if (p.student_id === selectedStudentId) {
+          return { ...p, status: advStatus === 'approved' ? 'approved' : 'adjustments' };
         }
+        return p;
+      }));
 
         // Add SINTCC portal system notification log entry
         const statusLabel = advStatus === 'approved' ? 'Aprovado sem Restrições' : advStatus === 'corrections' ? 'Recomenda Ajustes' : 'Reprovado / Refazer Etapa';
@@ -482,7 +472,7 @@ export default function App() {
   };
 
   // Identify student current proposal state
-  const myProposal = proposals.find(p => p.student_id === 1) || proposals[0];
+  const myProposal = proposals.find(p => p.student_id === user?.id);
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans antialiased">
@@ -684,7 +674,7 @@ export default function App() {
                         className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition cursor-pointer ${activeTab === 'submissions' ? 'bg-emerald-600/10 text-emerald-300 border-l-4 border-emerald-500 font-semibold' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}
                       >
                         <ClipboardList className="h-4 w-4" />
-                        <span>Submeter Rascunhos</span>
+                        <span>Submeter Documentos</span>
                       </button>
 
                       <button 
@@ -700,11 +690,15 @@ export default function App() {
                   {user.role === 'advisor' && (
                     <>
                       <button 
-                        onClick={() => setActiveTab('advisor_feedback')}
+                        onClick={() => {
+                          setActiveTab('advisor_feedback');
+                          setSelectedStudentId(null);
+                          setSelectedSubId('');
+                        }}
                         className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition cursor-pointer ${activeTab === 'advisor_feedback' ? 'bg-emerald-600/10 text-emerald-300 border-l-4 border-emerald-500 font-semibold' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}
                       >
                         <UserCheck className="h-4 w-4 text-emerald-400" />
-                        <span>Avaliar Trabalhos</span>
+                        <span>Avaliar Documentos</span>
                       </button>
 
                       <button 
@@ -915,8 +909,8 @@ export default function App() {
                                       className="text-emerald-400 hover:text-emerald-300 font-bold underline cursor-pointer"
                                     >
                                       {(d.id === 1 || d.name.toLowerCase().includes('proposta')) 
-                                        ? (completed ? 'Acessar / Reenviar Proposta →' : 'Enviar Proposta →') 
-                                        : (completed ? 'Submeter Nova Versão →' : 'Submeter Rascunho →')}
+                                        ? (completed ? 'Reenviar Proposta →' : 'Submeter Proposta →') 
+                                        : (completed ? 'Reenviar Documento →' : 'Submeter Documento →')}
                                     </button>
                                   )}
                                 </div>
@@ -957,14 +951,16 @@ export default function App() {
                           <div>
                             <h3 className="text-lg font-bold text-white flex items-center">
                               <UserCheck className="h-5 w-5 mr-2 text-emerald-400" />
-                              Histórico de Temas Orientados / Coordenação Geral SINTCC
+                              TCCS Ativos e Submissões Recentes
                             </h3>
-                            <p className="text-xs text-slate-400">
-                              Gerenciamento central de temas ativos e fluxo de acompanhamento de revisões de monografias.
-                            </p>
                           </div>
                           <div className="bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800 text-xs text-emerald-400 font-mono">
-                            Total de Alunos: 3
+                            Total de Alunos: {
+                              [...new Set([
+                                ...proposals.map(p => p.student_id),
+                                ...submissions.map(s => s.student_id)
+                              ])].length
+                            }
                           </div>
                         </div>
 
@@ -981,13 +977,25 @@ export default function App() {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-850">
-                              {[
-                                { id: 1, name: 'Aluno Universitário', defaultTopic: 'IA Generativa na Avaliação Escolar' },
-                                { id: 4, name: 'Mariana Costa Santana', defaultTopic: 'IoT no Monitoramento de Barragens de Rejeito' },
-                                { id: 5, name: 'Rodrigo Medeiros Souza', defaultTopic: 'Blockchain aplicado à Rastreabilidade Logística' }
-                              ].map(student => {
-                                const prop = proposals.find(p => p.student_id === student.id);
-                                const subs = submissions.filter(s => s.student_id === student.id);
+                              {(() => {
+                                const studentIdsWithActivity = [...new Set([
+                                  ...proposals.map(p => p.student_id),
+                                  ...submissions.map(s => s.student_id)
+                                ])];
+
+                                if (studentIdsWithActivity.length === 0) {
+                                  return (
+                                    <tr>
+                                      <td colSpan="6" className="text-center py-10 text-slate-500 text-xs italic">
+                                        Nenhum aluno submeteu propostas ou documentos ainda.
+                                      </td>
+                                    </tr>
+                                  );
+                                }
+
+                                return studentIdsWithActivity.map(studentId => {
+                                  const prop = proposals.find(p => p.student_id === studentId);
+                                  const subs = submissions.filter(s => s.student_id === studentId);
                                 const latestSub = subs.length > 0 ? subs[subs.length - 1] : null;
                                 const latestFb = latestSub ? feedbacks.find(f => f.submission_id === latestSub.id) : null;
                                 
@@ -995,12 +1003,12 @@ export default function App() {
                                 const needsSubmissionReview = latestSub && !latestFb;
 
                                 return (
-                                  <tr key={student.id} className="hover:bg-slate-900/40 transition">
+                                  <tr key={studentId} className="hover:bg-slate-900/40 transition">
                                     <td className="px-3 py-3.5 font-semibold text-white whitespace-nowrap">
-                                      {student.name}
+                                      {getStudentName(studentId)}
                                     </td>
-                                    <td className="px-3 py-3.5 max-w-[300px] truncate" title={prop?.title || student.defaultTopic}>
-                                      {prop?.title || student.defaultTopic}
+                                    <td className="px-3 py-3.5 max-w-[300px] truncate" title={prop?.title || 'Título não definido'}>
+                                      {prop?.title || 'Título não definido'}
                                     </td>
                                     <td className="px-3 py-3.5 text-center whitespace-nowrap">
                                       {prop ? (
@@ -1032,14 +1040,12 @@ export default function App() {
                                           {needsProposalReview && (
                                             <button
                                               onClick={() => {
-                                                const matchingSub = submissions.find(s => s.student_id === student.id);
+                                                setSelectedStudentId(studentId);
+                                                const matchingSub = submissions.find(s => s.student_id === studentId);
                                                 if (matchingSub) {
                                                   setSelectedSubId(matchingSub.id.toString());
                                                 } else {
-                                                  // fallback to 1st if none exists yet
-                                                  if (submissions.length > 0) {
-                                                    setSelectedSubId(submissions[0].id.toString());
-                                                  }
+                                                  setSelectedSubId('');
                                                 }
                                                 // Pre-fill comment with a theme review suggestion
                                                 setAdvComment(`Parecer preliminar sobre o tema de TCC "${prop.title}": Proposta aprovada para desenvolvimento.`);
@@ -1048,12 +1054,13 @@ export default function App() {
                                               }}
                                               className="bg-amber-600 hover:bg-amber-500 hover:scale-102 transform text-slate-950 font-bold px-2.5 py-1 rounded text-[10px] cursor-pointer transition select-none inline-block shadow-sm"
                                             >
-                                              Avaliar Tema
+                                              Avaliar
                                             </button>
                                           )}
                                           {needsSubmissionReview && latestSub && (
                                             <button
                                               onClick={() => {
+                                                setSelectedStudentId(studentId);
                                                 setSelectedSubId(latestSub.id.toString());
                                                 setAdvComment(`Feedback acadêmico para o primeiro rascunho (V${latestSub.version}.0) apresentado.`);
                                                 setAdvStatus('approved');
@@ -1061,7 +1068,7 @@ export default function App() {
                                               }}
                                               className="bg-emerald-600 hover:bg-emerald-500 hover:scale-102 transform text-slate-950 font-bold px-2.5 py-1 rounded text-[10px] cursor-pointer transition select-none inline-block shadow-sm"
                                             >
-                                              Avaliar Rascunho
+                                            Avaliar
                                             </button>
                                           )}
                                         </div>
@@ -1073,7 +1080,8 @@ export default function App() {
                                     </td>
                                   </tr>
                                 );
-                              })}
+                                });
+                              })()}
                             </tbody>
                           </table>
                         </div>
@@ -1095,7 +1103,7 @@ export default function App() {
                 <div className="bg-slate-950 rounded-xl p-6 border border-slate-850 mt-6">
                   <h3 className="text-lg font-bold text-white mb-4 flex items-center">
                     <FileText className="h-5 w-5 mr-2 text-emerald-400" />
-                    Histórico Acadêmico de Submissões Parciais e Pareceres
+                    Histórico de Submissões e Pareceres
                   </h3>
 
                   <div className="overflow-x-auto">
@@ -1476,21 +1484,20 @@ export default function App() {
             {/* Avaliar Trabalhos (Advisor) */}
             {activeTab === 'advisor_feedback' && (
               <div className="max-w-3xl space-y-6">
-                <div>
-                  <h3 className="text-xl font-bold text-white">Painel de Orientação - Lançar Parecer de TCC</h3>
-                  <p className="text-sm text-slate-400 mt-1">Insira comentários formais e atualizações de status nos esboços.</p>
-                </div>
 
                 <div className="bg-slate-950 p-6 rounded-xl border border-slate-850">
                   <form onSubmit={handleSaveFeedback} className="space-y-4">
                     
                     <div>
-                      <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Selecionar Versão sob Avaliação</label>
+                      <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Selecionar TCC e Documento para Avaliar</label>
                       <select 
                         className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-white focus:border-teal-500"
                         value={selectedSubId}
-                        onChange={(e) => setSelectedSubId(e.target.value)}
-                        required
+                        onChange={(e) => {
+                          setSelectedSubId(e.target.value);
+                          const sub = submissions.find(s => s.id.toString() === e.target.value);
+                          if (sub) setSelectedStudentId(sub.student_id);
+                        }}
                       >
                         <option value="">-- Escolher Submissão do Aluno --</option>
                         {submissions.map(sub => (
@@ -1506,7 +1513,7 @@ export default function App() {
                       <div className="bg-slate-900/60 p-5 rounded-lg border border-emerald-500/30 space-y-3.5 my-3 animate-fadeIn">
                         <div className="flex items-center space-x-2 text-emerald-400 font-bold text-xs uppercase tracking-wider">
                           <BookOpen className="h-4 w-4" />
-                          <span>Tema e Proposta Cadastrada de {getStudentName(selectedSub?.student_id)}</span>
+                          <span>Tema e Proposta Cadastrada de {getStudentName(selectedProposal.student_id)}</span>
                         </div>
                         <div className="space-y-1">
                           <span className="text-[10px] uppercase tracking-widest text-slate-500 font-mono font-bold block">Título do Tema:</span>
@@ -1519,6 +1526,18 @@ export default function App() {
                           <p className="text-slate-300 text-xs italic bg-slate-950/40 p-3 rounded border border-slate-850 block leading-relaxed font-sans">
                             {selectedProposal.summary || "Sem descrição disponível."}
                           </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedSub && selectedSub.text && (
+                      <div className="bg-slate-900/40 p-5 rounded-lg border border-teal-500/30 space-y-3.5 my-3 animate-fadeIn">
+                        <div className="flex items-center space-x-2 text-teal-400 font-bold text-xs uppercase tracking-wider">
+                          <FileText className="h-4 w-4" />
+                          <span>Conteúdo do Documento Submetido (V{selectedSub.version}.0)</span>
+                        </div>
+                        <div className="bg-slate-950/60 p-3 rounded border border-slate-850 text-slate-300 text-xs whitespace-pre-wrap font-sans max-h-64 overflow-y-auto leading-relaxed">
+                          {selectedSub.text}
                         </div>
                       </div>
                     )}

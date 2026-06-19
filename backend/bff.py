@@ -64,6 +64,13 @@ _notifs_lock = threading.Lock()
 _seq = 0
 _ultimo_relatorio = {"valor": None}
 
+# Read-model para manter o estado sincronizado com a interface React
+_proposals_store = {}   # aluno_id -> dados da proposta
+_submissions_store = []
+_feedbacks_store = []
+_deliveries_store = []
+_store_lock = threading.Lock()
+
 
 def _add_notif(message, evento="", aluno_id=None, role=None):
     global _seq
@@ -118,14 +125,13 @@ def _mensagem_do_evento(topico, dados):
 
 def _loop_sub():
     """Ouve TODAS as PUBs dos servicos e alimenta o feed (read-model)."""
-    sub_socks = {}
     poller = zmq.Poller()
-    for nome in ("propostas", "documentos", "ia", "avaliacao", "notificacao", "banca", "relatorio"):
+    # Conecta-se diretamente ao PUB de cada servico para receber as atualizacoes de estado
+    for service_name in ("propostas", "documentos", "ia", "avaliacao", "notificacao", "banca", "relatorio"):
         s = ctx.socket(zmq.SUB)
-        s.connect(get_zmq_address(nome))
+        s.connect(get_zmq_address(service_name))
         s.setsockopt_string(zmq.SUBSCRIBE, "")
         poller.register(s, zmq.POLLIN)
-        sub_socks[s] = nome
     log.info("SUB conectado às PUBs dos serviços (feed da coreografia ao vivo)")
     while True:
         try:
@@ -134,11 +140,42 @@ def _loop_sub():
                 raw = s.recv_string()
                 topico, c = raw.split(" ", 1)
                 dados = json.loads(c)
+                aluno = dados.get("aluno_id")
+                p = dados.get("payload", {}) or {}
                 if topico == TipoEvento.RELATORIO_GERADO.value:
                     _ultimo_relatorio["valor"] = dados.get("payload", {})
                 msg = _mensagem_do_evento(topico, dados)
                 if msg:
                     _add_notif(msg, topico, dados.get("aluno_id"))
+                
+                # Atualiza o Read-Model do BFF com base nos eventos da malha
+                with _store_lock:
+                    if topico == TipoEvento.PROPOSTA_SUBMETIDA.value:
+                        _proposals_store[aluno] = {
+                            "id": p.get("id") or dados.get("id"), "student_id": aluno,
+                            "title": p.get("titulo"), "summary": p.get("resumo"), "status": "pending"
+                        }
+                    elif topico == TipoEvento.PROPOSTA_APROVADA.value:
+                        if aluno in _proposals_store: _proposals_store[aluno]["status"] = "approved"
+                    elif topico == TipoEvento.PROPOSTA_REJEITADA.value:
+                        if aluno in _proposals_store: _proposals_store[aluno]["status"] = "adjustments"
+                    elif topico == TipoEvento.VERSAO_SUBMETIDA.value:
+                        # Evita duplicatas simples no rascunho de demo
+                        if not any(s['id'] == p.get('id') for s in _submissions_store if p.get('id')):
+                            _submissions_store.append({
+                                "id": p.get("id", int(time.time())), "delivery_id": p.get("entrega_id"),
+                                "student_id": aluno, "file_path": "uploads/documento.pdf",
+                                "version": p.get("numero"), "text": p.get("texto"),
+                                "created_at": time.strftime("%d/%m/%Y")
+                            })
+                    elif topico == TipoEvento.FEEDBACK_ENVIADO.value:
+                        if not any(f['id'] == p.get('id') for f in _feedbacks_store if p.get('id')):
+                            _feedbacks_store.append({
+                                "id": p.get("id", int(time.time())), "submission_id": p.get("versao_id"),
+                                "advisor_id": 3, "comment": p.get("comentario"),
+                                "status": "approved" if p.get("decisao") == "aprovado" else "corrections",
+                                "created_at": time.strftime("%d/%m/%Y")
+                            })
         except Exception as e:
             log.error(f"erro no loop SUB: {e}")
 
@@ -229,6 +266,12 @@ def enviar_parecer(body, claims):
               {"comentario": body.get("comment", ""), "feedback": body.get("comment", ""),
                "decisao": decisao, "criterios": body.get("criterios") or {},
                "nota": body.get("nota"), "versao_id": body.get("submission_id")})
+
+    # Notifica o serviço de propostas para atualizar o status do TCC na malha
+    _publicar(TipoEvento.PROPOSTA_AVALIADA, aluno, "avaliar_proposta",
+              {"decisao": "aprovada" if status == "approved" else "rejeitada", 
+               "motivo": body.get("comment", "")})
+
     return 202, {"success": True, "feedback_id": int(time.time()) % 100000}
 
 
@@ -252,6 +295,14 @@ def gerar_relatorio(body, claims):
         push.send_string(json.dumps({"tipo": body.get("tipo", "panorama"),
                                      "solicitante": (claims or {}).get("nome", "coordenador")}))
     return 202, {"success": True, "message": "Relatório solicitado ao pipeline PUSH/PULL"}
+
+def registrar_entrega_local(body):
+    with _store_lock:
+        new_id = int(time.time()) % 100000
+        delivery = {"id": new_id, "name": body.get("name"), 
+                    "description": body.get("description"), "deadline": body.get("deadline")}
+        _deliveries_store.append(delivery)
+        return new_id
 
 
 def analisar_ia(body, claims):
@@ -320,6 +371,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, list(_notifs))
         if path == "/api/relatorios/ultimo":
             return self._send_json(200, _ultimo_relatorio["valor"] or {})
+        if path == "/api/proposals":
+            with _store_lock: return self._send_json(200, list(_proposals_store.values()))
+        if path == "/api/submissions":
+            with _store_lock: return self._send_json(200, _submissions_store)
+        if path == "/api/feedbacks":
+            with _store_lock: return self._send_json(200, _feedbacks_store)
+        if path == "/api/deliveries":
+            with _store_lock: return self._send_json(200, _deliveries_store)
         return self._serve_static(path)
 
     def do_POST(self):
@@ -340,7 +399,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/feedback":
                 return self._send_json(*enviar_parecer(body, claims))
             if path == "/api/deliveries":
-                return self._send_json(202, {"success": True, "delivery_id": int(time.time()) % 100000})
+                new_id = registrar_entrega_local(body)
+                return self._send_json(202, {"success": True, "delivery_id": new_id})
             if path == "/api/ai/analyze":
                 return self._send_json(*analisar_ia(body, claims))
             if path == "/api/banca/definir":
