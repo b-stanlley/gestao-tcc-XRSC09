@@ -21,13 +21,13 @@ def peer(rel):
 
 # Consumidores/servicos primeiro; workers do relatorio depois; BFF por ultimo.
 PEERS = [
+    "services/autenticacao/service.py",
     "services/notificacao/service.py",
     "services/ia/service.py",
     "services/avaliacao/service.py",
     "services/propostas/service.py",
     "services/documentos/service.py",
     "services/banca/service.py",
-    "services/autenticacao/service.py",
     "services/relatorios/service.py",
     "services/relatorios/worker.py",
     "services/relatorios/worker.py",   # 2 workers (paralelismo do PUSH/PULL)

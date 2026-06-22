@@ -14,17 +14,13 @@ def _hash(senha: str) -> str:
 
 # Usuarios de demonstracao (espelham os seeds do bd.sql) para o modo offline.
 # Senhas: aluno123 / orient123 / coord123 / banca123
-# Inclui tambem os e-mails de "acesso rapido" da interface SINTCC (senha 123), para
-# que os botoes de demonstracao autentiquem pela MESMA malha (DEALER/ROUTER).
+# MESMAS credenciais do bd.sql (seeds do MySQL), para o login funcionar igual com ou
+# sem MySQL (fallback). Os botoes de "acesso rapido" da interface usam estes e-mails.
 USUARIOS_DEMO = {
     "aluno@unifei.edu.br":      {"id": 1, "nome": "Larissa (Aluno)",    "role": "aluno",       "senha": "aluno123"},
     "orientador@unifei.edu.br": {"id": 2, "nome": "Bruno (Orientador)", "role": "orientador",  "senha": "orient123"},
     "coord@unifei.edu.br":      {"id": 3, "nome": "Coordenacao de TCC", "role": "coordenador", "senha": "coord123"},
     "banca@unifei.edu.br":      {"id": 4, "nome": "Membro da Banca",    "role": "banca",       "senha": "banca123"},
-    "estudante@univ.edu":       {"id": 1, "nome": "Estudante Teste",    "role": "aluno",       "senha": "123"},
-    "orientador@univ.edu":      {"id": 3, "nome": "Orientador Teste",   "role": "orientador",  "senha": "123"},
-    "coordenador@univ.edu":     {"id": 2, "nome": "Coordenador Teste",  "role": "coordenador", "senha": "123"},
-    "banca@univ.edu":           {"id": 4, "nome": "Membro da Banca",    "role": "banca",       "senha": "123"},
 }
 
 
@@ -62,6 +58,64 @@ class Repositorio:
         if u and _hash(u["senha"]) == senha_hash:
             return {"id": u["id"], "nome": u["nome"], "email": email, "role": u["role"]}
         return None
+
+    def salvar_proposta(self, aluno_id, titulo, resumo):
+        """Cria/atualiza a proposta do aluno (status inicial 'pendente'). Retorna o id ou None."""
+        if self.cur:
+            try:
+                self.cur.execute("SELECT id FROM propostas WHERE aluno_id=%s ORDER BY id DESC LIMIT 1", (aluno_id,))
+                row = self.cur.fetchone()
+                if row:
+                    self.cur.execute("UPDATE propostas SET titulo=%s, resumo=%s, status='pendente' WHERE id=%s",
+                                     (titulo, resumo, row[0]))
+                    self.con.commit(); return row[0]
+                self.cur.execute("INSERT INTO propostas (aluno_id,titulo,resumo,status) VALUES (%s,%s,%s,'pendente')",
+                                 (aluno_id, titulo, resumo))
+                self.con.commit(); return self.cur.lastrowid
+            except Exception as e:
+                logger.error(f"Erro salvar_proposta: {e}")
+        return None
+
+    def atualizar_status_proposta(self, aluno_id, status):
+        """status: 'aprovada' | 'rejeitada' | 'ajustes' | 'pendente'."""
+        if self.cur:
+            try:
+                self.cur.execute("UPDATE propostas SET status=%s WHERE aluno_id=%s", (status, aluno_id))
+                self.con.commit()
+            except Exception as e:
+                logger.error(f"Erro atualizar_status_proposta: {e}")
+
+    # --- Consultas para o BFF reidratar o read-model apos um reinicio (persistencia) ---
+    def listar_propostas(self):
+        if self.cur:
+            try:
+                self.cur.execute("SELECT id, aluno_id, titulo, resumo, status FROM propostas ORDER BY id")
+                return [{"id": r[0], "aluno_id": r[1], "titulo": r[2], "resumo": r[3], "status": r[4]}
+                        for r in self.cur.fetchall()]
+            except Exception as e:
+                logger.error(f"Erro listar_propostas: {e}")
+        return []
+
+    def listar_versoes(self):
+        if self.cur:
+            try:
+                self.cur.execute("SELECT id, aluno_id, entrega_id, numero, texto FROM versoes ORDER BY id")
+                return [{"id": r[0], "aluno_id": r[1], "entrega_id": r[2], "numero": r[3], "texto": r[4]}
+                        for r in self.cur.fetchall()]
+            except Exception as e:
+                logger.error(f"Erro listar_versoes: {e}")
+        return []
+
+    def listar_pareceres(self):
+        if self.cur:
+            try:
+                self.cur.execute("SELECT id, aluno_id, versao_id, nota, decisao, comentario FROM pareceres ORDER BY id")
+                return [{"id": r[0], "aluno_id": r[1], "versao_id": r[2],
+                         "nota": float(r[3]) if r[3] is not None else None, "decisao": r[4], "comentario": r[5]}
+                        for r in self.cur.fetchall()]
+            except Exception as e:
+                logger.error(f"Erro listar_pareceres: {e}")
+        return []
 
     def salvar_versao(self, aluno_id, texto, tipo):
         if self.cur:

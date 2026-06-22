@@ -64,6 +64,13 @@ _notifs_lock = threading.Lock()
 _seq = 0
 _ultimo_relatorio = {"valor": None}
 
+# Read-model para manter o estado sincronizado com a interface React
+_proposals_store = {}   # aluno_id -> dados da proposta
+_submissions_store = []
+_feedbacks_store = []
+_deliveries_store = []
+_store_lock = threading.Lock()
+
 
 def _add_notif(message, evento="", aluno_id=None, role=None):
     global _seq
@@ -118,14 +125,13 @@ def _mensagem_do_evento(topico, dados):
 
 def _loop_sub():
     """Ouve TODAS as PUBs dos servicos e alimenta o feed (read-model)."""
-    sub_socks = {}
     poller = zmq.Poller()
-    for nome in ("propostas", "documentos", "ia", "avaliacao", "notificacao", "banca", "relatorio"):
+    # Conecta-se diretamente ao PUB de cada servico para receber as atualizacoes de estado
+    for service_name in ("propostas", "documentos", "ia", "avaliacao", "notificacao", "banca", "relatorio"):
         s = ctx.socket(zmq.SUB)
-        s.connect(get_zmq_address(nome))
+        s.connect(get_zmq_address(service_name))
         s.setsockopt_string(zmq.SUBSCRIBE, "")
         poller.register(s, zmq.POLLIN)
-        sub_socks[s] = nome
     log.info("SUB conectado às PUBs dos serviços (feed da coreografia ao vivo)")
     while True:
         try:
@@ -134,11 +140,70 @@ def _loop_sub():
                 raw = s.recv_string()
                 topico, c = raw.split(" ", 1)
                 dados = json.loads(c)
+                aluno = dados.get("aluno_id")
+                p = dados.get("payload", {}) or {}
                 if topico == TipoEvento.RELATORIO_GERADO.value:
                     _ultimo_relatorio["valor"] = dados.get("payload", {})
                 msg = _mensagem_do_evento(topico, dados)
                 if msg:
                     _add_notif(msg, topico, dados.get("aluno_id"))
+                
+                # Atualiza o Read-Model do BFF com base nos eventos da malha
+                with _store_lock:
+                    if topico == TipoEvento.PROPOSTA_SUBMETIDA.value:
+                        _proposals_store[aluno] = {
+                            "id": p.get("id") or dados.get("id"), "student_id": aluno,
+                            "title": p.get("titulo"), "summary": p.get("resumo"), "status": "pending"
+                        }
+                    elif topico == TipoEvento.PROPOSTA_APROVADA.value:
+                        if aluno in _proposals_store: _proposals_store[aluno]["status"] = "approved"
+                    elif topico == TipoEvento.PROPOSTA_REJEITADA.value:
+                        if aluno in _proposals_store: _proposals_store[aluno]["status"] = "adjustments"
+                    elif topico == TipoEvento.VERSAO_SUBMETIDA.value:
+                        # Evita duplicatas buscando por student_id e delivery_id
+                        existente = None
+                        ent_id = p.get("entrega_id")
+                        for s in _submissions_store:
+                            if str(s.get("student_id")) == str(aluno) and str(s.get("delivery_id")) == str(ent_id):
+                                existente = s
+                                break
+                        
+                        if existente:
+                            existente["id"] = p.get("versao_id") or existente["id"]
+                            existente["version"] = p.get("numero") or existente["version"]
+                            if p.get("texto"):
+                                existente["text"] = p.get("texto")
+                        else:
+                            _submissions_store.append({
+                                "id": p.get("versao_id") or p.get("id") or int(time.time()),
+                                "delivery_id": ent_id,
+                                "student_id": aluno,
+                                "file_path": "uploads/documento.pdf",
+                                "version": p.get("numero"),
+                                "text": p.get("texto"),
+                                "created_at": time.strftime("%d/%m/%Y")
+                            })
+                    elif topico == TipoEvento.FEEDBACK_ENVIADO.value:
+                        existente = None
+                        sub_id = p.get("versao_id")
+                        for f in _feedbacks_store:
+                            if str(f.get("submission_id")) == str(sub_id) and sub_id is not None:
+                                existente = f
+                                break
+                        
+                        if existente:
+                            existente["id"] = p.get("id") or existente["id"]
+                            existente["comment"] = p.get("comentario") or existente["comment"]
+                            existente["status"] = "approved" if p.get("decisao") == "aprovado" else "corrections"
+                        else:
+                            _feedbacks_store.append({
+                                "id": p.get("id", int(time.time())),
+                                "submission_id": sub_id,
+                                "advisor_id": 3,
+                                "comment": p.get("comentario"),
+                                "status": "approved" if p.get("decisao") == "aprovado" else "corrections",
+                                "created_at": time.strftime("%d/%m/%Y")
+                            })
         except Exception as e:
             log.error(f"erro no loop SUB: {e}")
 
@@ -195,9 +260,36 @@ def login(body):
 def submeter_versao(body, claims):
     aluno = body.get("student_id") or (claims or {}).get("id")
     texto = body.get("text") or body.get("texto") or ""
+    delivery_id = body.get("delivery_id")
+    
+    sub_id = int(time.time()) % 100000
+    
+    # Salva na lista em memória de imediato para resolver condição de corrida no polling do React
+    with _store_lock:
+        existente = None
+        for s in _submissions_store:
+            if str(s.get("student_id")) == str(aluno) and str(s.get("delivery_id")) == str(delivery_id):
+                existente = s
+                break
+        
+        if existente:
+            existente["text"] = texto
+            existente["version"] = existente.get("version", 1) + 1
+        else:
+            _submissions_store.append({
+                "id": sub_id,
+                "delivery_id": delivery_id,
+                "student_id": aluno,
+                "file_path": "uploads/documento.pdf",
+                "version": 1,
+                "text": texto,
+                "created_at": time.strftime("%d/%m/%Y")
+            })
+
     _publicar(TipoEvento.VERSAO_RECEBIDA, aluno, "submeter",
-              {"texto": texto, "tipo": body.get("tipo", "desenvolvimento"), "caracteres": len(texto)})
-    return 202, {"success": True, "submission_id": int(time.time()) % 100000}
+              {"texto": texto, "tipo": body.get("tipo", "desenvolvimento"), "caracteres": len(texto),
+               "entrega_id": delivery_id})
+    return 202, {"success": True, "submission_id": sub_id}
 
 
 def submeter_proposta(body, claims):
@@ -224,12 +316,45 @@ def registrar_cronograma(body, claims):
 def enviar_parecer(body, claims):
     aluno = body.get("student_id") or (claims or {}).get("id")
     status = body.get("status", "")
+    comment = body.get("comment") or body.get("comentario") or ""
+    submission_id = body.get("submission_id")
+    
+    fb_id = int(time.time()) % 100000
+    
+    # Salva na lista em memória de feedbacks síncronamente para evitar condição de corrida no polling do React
+    with _store_lock:
+        existente = None
+        for f in _feedbacks_store:
+            if str(f.get("submission_id")) == str(submission_id) and f.get("submission_id") is not None:
+                existente = f
+                break
+        
+        if existente:
+            existente["comment"] = comment
+            existente["status"] = status
+        else:
+            _feedbacks_store.append({
+                "id": fb_id,
+                "submission_id": submission_id,
+                "advisor_id": 3,
+                "comment": comment,
+                "status": status,
+                "created_at": time.strftime("%d/%m/%Y")
+            })
+
     decisao = "aprovado" if status == "approved" else "correcoes"
     _publicar(TipoEvento.PARECER_RECEBIDO, aluno, "registrar_parecer",
-              {"comentario": body.get("comment", ""), "feedback": body.get("comment", ""),
+              {"comentario": comment, "feedback": comment,
                "decisao": decisao, "criterios": body.get("criterios") or {},
-               "nota": body.get("nota"), "versao_id": body.get("submission_id")})
-    return 202, {"success": True, "feedback_id": int(time.time()) % 100000}
+               "nota": body.get("nota"), "versao_id": submission_id})
+
+    # Notifica o serviço de propostas para atualizar o status do TCC na malha
+    _publicar(TipoEvento.PROPOSTA_AVALIADA, aluno, "avaliar_proposta",
+              {"decisao": "aprovada" if status == "approved" else "rejeitada", 
+               "motivo": comment})
+
+    return 202, {"success": True, "feedback_id": fb_id}
+
 
 
 def definir_banca(body, claims):
@@ -252,6 +377,14 @@ def gerar_relatorio(body, claims):
         push.send_string(json.dumps({"tipo": body.get("tipo", "panorama"),
                                      "solicitante": (claims or {}).get("nome", "coordenador")}))
     return 202, {"success": True, "message": "Relatório solicitado ao pipeline PUSH/PULL"}
+
+def registrar_entrega_local(body):
+    with _store_lock:
+        new_id = int(time.time()) % 100000
+        delivery = {"id": new_id, "name": body.get("name"), 
+                    "description": body.get("description"), "deadline": body.get("deadline")}
+        _deliveries_store.append(delivery)
+        return new_id
 
 
 def analisar_ia(body, claims):
@@ -320,6 +453,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, list(_notifs))
         if path == "/api/relatorios/ultimo":
             return self._send_json(200, _ultimo_relatorio["valor"] or {})
+        if path == "/api/proposals":
+            with _store_lock: return self._send_json(200, list(_proposals_store.values()))
+        if path == "/api/submissions":
+            with _store_lock: return self._send_json(200, _submissions_store)
+        if path == "/api/feedbacks":
+            with _store_lock: return self._send_json(200, _feedbacks_store)
+        if path == "/api/deliveries":
+            with _store_lock: return self._send_json(200, _deliveries_store)
         return self._serve_static(path)
 
     def do_POST(self):
@@ -340,7 +481,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/feedback":
                 return self._send_json(*enviar_parecer(body, claims))
             if path == "/api/deliveries":
-                return self._send_json(202, {"success": True, "delivery_id": int(time.time()) % 100000})
+                new_id = registrar_entrega_local(body)
+                return self._send_json(202, {"success": True, "delivery_id": new_id})
             if path == "/api/ai/analyze":
                 return self._send_json(*analisar_ia(body, claims))
             if path == "/api/banca/definir":
@@ -373,7 +515,42 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "arquivo não encontrado"})
 
 
+def _rehidratar():
+    """Reidrata o read-model a partir do MySQL (se disponivel), para que os dados
+    sobrevivam a um reinicio do BFF. Sem MySQL, e um no-op (modo demo em memoria)."""
+    try:
+        from common.db import Repositorio
+        repo = Repositorio()
+    except Exception as e:
+        log.warning(f"reidratacao ignorada: {e}"); return
+    if not getattr(repo, "cur", None):
+        repo.fechar(); return
+    mapa = {"pendente": "pending", "aprovada": "approved", "rejeitada": "adjustments", "ajustes": "adjustments"}
+    with _store_lock:
+        for p in repo.listar_propostas():
+            _proposals_store[p["aluno_id"]] = {
+                "id": p["id"], "student_id": p["aluno_id"], "title": p["titulo"],
+                "summary": p["resumo"], "status": mapa.get(p["status"], "pending")}
+        por_chave = {}
+        for v in repo.listar_versoes():
+            por_chave[(str(v["aluno_id"]), str(v["entrega_id"]))] = {
+                "id": v["numero"], "delivery_id": v["entrega_id"], "student_id": v["aluno_id"],
+                "file_path": "uploads/documento.pdf", "version": v["numero"],
+                "text": v["texto"], "created_at": ""}
+        _submissions_store.extend(por_chave.values())
+        for pa in repo.listar_pareceres():
+            _feedbacks_store.append({
+                "id": pa["id"], "submission_id": pa["versao_id"], "advisor_id": 3,
+                "comment": pa["comentario"],
+                "status": "approved" if pa["decisao"] == "aprovado" else "corrections",
+                "created_at": ""})
+    repo.fechar()
+    log.info(f"read-model reidratado do MySQL: {len(_proposals_store)} propostas, "
+             f"{len(_submissions_store)} submissoes, {len(_feedbacks_store)} pareceres")
+
+
 def main():
+    _rehidratar()
     threading.Thread(target=_loop_sub, daemon=True).start()
     time.sleep(0.3)
     server = ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), Handler)
