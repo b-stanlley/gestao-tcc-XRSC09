@@ -37,6 +37,7 @@ class ServicoPropostas:
         aluno = dados["aluno_id"]
         p = dados.get("payload", {})
         self._propostas[aluno] = {"titulo": p.get("titulo", ""), "resumo": p.get("resumo", ""), "status": "submetida"}
+        self.repo.salvar_proposta(aluno, p.get("titulo", ""), p.get("resumo", ""))   # persiste (MySQL)
         self._publicar(TipoEvento.PROPOSTA_SUBMETIDA, aluno, "submeter_proposta",
                        {"id": dados.get("id"), "titulo": p.get("titulo", ""), "resumo": p.get("resumo", ""),
                         "para": ["coordenacao", "orientador"]})
@@ -46,10 +47,12 @@ class ServicoPropostas:
         decisao = (p.get("decisao") or "").lower()
         if decisao == "aprovada" or decisao == "aprovado":
             self._propostas.setdefault(aluno, {})["status"] = "aprovada"
+            self.repo.atualizar_status_proposta(aluno, "aprovada")                   # persiste (MySQL)
             self._publicar(TipoEvento.PROPOSTA_APROVADA, aluno, "aprovar_proposta",
                            {"para": ["coordenacao", "discente"]})
         else:
             self._propostas.setdefault(aluno, {})["status"] = "rejeitada"
+            self.repo.atualizar_status_proposta(aluno, "rejeitada")                  # persiste (MySQL)
             self._publicar(TipoEvento.PROPOSTA_REJEITADA, aluno, "rejeitar_proposta",
                            {"motivo": p.get("motivo", ""), "para": ["notificacoes", "discente"]})
     def on_cronograma(self, dados):

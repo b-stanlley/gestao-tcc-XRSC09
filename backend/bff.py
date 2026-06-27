@@ -515,7 +515,42 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "arquivo não encontrado"})
 
 
+def _rehidratar():
+    """Reidrata o read-model a partir do MySQL (se disponivel), para que os dados
+    sobrevivam a um reinicio do BFF. Sem MySQL, e um no-op (modo demo em memoria)."""
+    try:
+        from common.db import Repositorio
+        repo = Repositorio()
+    except Exception as e:
+        log.warning(f"reidratacao ignorada: {e}"); return
+    if not getattr(repo, "cur", None):
+        repo.fechar(); return
+    mapa = {"pendente": "pending", "aprovada": "approved", "rejeitada": "adjustments", "ajustes": "adjustments"}
+    with _store_lock:
+        for p in repo.listar_propostas():
+            _proposals_store[p["aluno_id"]] = {
+                "id": p["id"], "student_id": p["aluno_id"], "title": p["titulo"],
+                "summary": p["resumo"], "status": mapa.get(p["status"], "pending")}
+        por_chave = {}
+        for v in repo.listar_versoes():
+            por_chave[(str(v["aluno_id"]), str(v["entrega_id"]))] = {
+                "id": v["numero"], "delivery_id": v["entrega_id"], "student_id": v["aluno_id"],
+                "file_path": "uploads/documento.pdf", "version": v["numero"],
+                "text": v["texto"], "created_at": ""}
+        _submissions_store.extend(por_chave.values())
+        for pa in repo.listar_pareceres():
+            _feedbacks_store.append({
+                "id": pa["id"], "submission_id": pa["versao_id"], "advisor_id": 3,
+                "comment": pa["comentario"],
+                "status": "approved" if pa["decisao"] == "aprovado" else "corrections",
+                "created_at": ""})
+    repo.fechar()
+    log.info(f"read-model reidratado do MySQL: {len(_proposals_store)} propostas, "
+             f"{len(_submissions_store)} submissoes, {len(_feedbacks_store)} pareceres")
+
+
 def main():
+    _rehidratar()
     threading.Thread(target=_loop_sub, daemon=True).start()
     time.sleep(0.3)
     server = ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), Handler)

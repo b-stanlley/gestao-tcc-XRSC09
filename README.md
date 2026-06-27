@@ -68,13 +68,15 @@ npm run backend            # = python backend/run.py  (BFF em http://localhost:3
 npm run dev                # Vite em http://localhost:5173 (proxy /api -> :3000)
 ```
 
-**4. Abrir** http://localhost:5173 e entrar com um dos perfis demo (senha **`123`**):
+**4. Abrir** http://localhost:5173 e entrar com um dos perfis de demonstração
+(mesmas credenciais dos seeds do `bd.sql` — funcionam com ou sem MySQL):
 
-| Perfil | E-mail |
-|---|---|
-| Aluno | `estudante@univ.edu` |
-| Orientador | `orientador@univ.edu` |
-| Coordenador | `coordenador@univ.edu` |
+| Perfil | E-mail | Senha |
+|---|---|---|
+| Aluno | `aluno@unifei.edu.br` | `aluno123` |
+| Orientador | `orientador@unifei.edu.br` | `orient123` |
+| Coordenador | `coord@unifei.edu.br` | `coord123` |
+| Banca | `banca@unifei.edu.br` | `banca123` |
 
 ### Veja a coreografia ao vivo
 Como **Aluno**, em *Submeter Rascunhos*, escolha a etapa e envie um texto. O BFF injeta

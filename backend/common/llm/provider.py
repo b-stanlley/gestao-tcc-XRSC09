@@ -85,8 +85,55 @@ class HttpProvider(ProvedorLLM):
             return SimuladoProvider().analisar(texto, modo)
 
 
+class GeminiProvider(ProvedorLLM):
+    """Consulta a API do Google Gemini (HTTP/JSON) via urllib (sem dependencia extra).
+    Pronto para conectar: defina GEMINI_API_KEY e LLM_PROVIDER=gemini (e, se quiser,
+    GEMINI_MODEL). Sem chave / em caso de erro, cai no SimuladoProvider — a coreografia
+    nao para. A chamada ao Gemini e a unica chamada nao-ZeroMQ do Servico de IA."""
+    def __init__(self):
+        self.api_key = LLM_CONFIG.get("gemini_api_key", "")
+        self.model = LLM_CONFIG.get("gemini_model", "gemini-3.5-flash")
+        self.timeout = LLM_CONFIG["timeout"]
+
+    def analisar(self, texto: str, modo: str = "geral") -> dict:
+        import json as _json
+        import urllib.request as _req
+        if not self.api_key:
+            logger.warning("GEMINI_API_KEY ausente; usando fallback simulado.")
+            return SimuladoProvider().analisar(texto, modo)
+        prompt = (
+            "Voce avalia um trecho de TCC. Responda SOMENTE com um JSON com as chaves: "
+            "status (\"apto\" ou \"pendente\"), recomendacoes (lista de strings), "
+            "score (numero 0-100) e observacoes (string).\n\n"
+            f"Modo: {modo}\nTrecho:\n{(texto or '')[:4000]}"
+        )
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{self.model}:generateContent?key={self.api_key}")
+        corpo = _json.dumps({
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"response_mime_type": "application/json"},
+        }).encode("utf-8")
+        try:
+            requisicao = _req.Request(url, data=corpo, headers={"Content-Type": "application/json"})
+            with _req.urlopen(requisicao, timeout=self.timeout) as resp:
+                resposta = _json.loads(resp.read().decode("utf-8"))
+            texto_json = resposta["candidates"][0]["content"]["parts"][0]["text"]
+            data = _json.loads(texto_json)
+            data.setdefault("status", "pendente")
+            data.setdefault("recomendacoes", [])
+            data.setdefault("score", 0)
+            data.setdefault("observacoes", "")
+            return data
+        except Exception as e:
+            logger.warning(f"Gemini indisponivel ({e}); usando fallback simulado.")
+            return SimuladoProvider().analisar(texto, modo)
+
+
 def get_provedor() -> ProvedorLLM:
     nome = LLM_CONFIG["provider"].lower()
+    if nome == "gemini":
+        logger.info(f"Provedor de LLM: Gemini ({LLM_CONFIG.get('gemini_model')})")
+        return GeminiProvider()
     if nome == "http":
         logger.info(f"Provedor de LLM: HTTP ({LLM_CONFIG['url']})")
         return HttpProvider()

@@ -3,6 +3,25 @@ Segredos vem de variaveis de ambiente (.env), nunca hardcoded.
 """
 import os
 
+
+def _carregar_env():
+    """Carrega um arquivo .env da raiz do projeto para os.environ (stdlib, sem dependencia).
+    Variaveis ja definidas no ambiente do terminal tem prioridade sobre o .env."""
+    raiz = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        with open(os.path.join(raiz, ".env"), encoding="utf-8") as f:
+            for linha in f:
+                linha = linha.strip()
+                if not linha or linha.startswith("#") or "=" not in linha:
+                    continue
+                chave, _, valor = linha.partition("=")
+                os.environ.setdefault(chave.strip(), valor.strip().strip('"').strip("'"))
+    except FileNotFoundError:
+        pass
+
+
+_carregar_env()
+
 # Porta do socket PUB de cada participante da malha
 PORTAS = {
     "gateway":     5570,  # PUB do gateway: injeta comandos do cliente na malha
@@ -31,20 +50,22 @@ DB_CONFIG = {
     "autocommit": True,
 }
 
-# Provedor de LLM plugavel:
+# Provedor de LLM plugavel (selecionado por LLM_PROVIDER):
 #   "simulado" -> heuristica em processo (offline, zero setup)
-#   "http"     -> consulta um Provedor de LLM por HTTP/JSON (o stub local em
-#                 common/llm/stub_server.py), tornando real a seta "consulta (HTTP/JSON)"
-#                 do diagrama de sequencia, sem internet nem modelo pesado
+#   "gemini"   -> API do Google Gemini (HTTP/JSON). Defina GEMINI_API_KEY (e, se quiser,
+#                 GEMINI_MODEL). Cai no simulado se faltar a chave / der erro.
+#   "http"     -> stub local por HTTP (common/llm/stub_server.py)
 #   "ollama"   -> modelo local via Ollama (HTTP)
 LLM_STUB_PORT = int(os.getenv("LLM_STUB_PORT", "5571"))
 LLM_CONFIG = {
-    "provider":     os.getenv("LLM_PROVIDER", "simulado"),
-    "url":          os.getenv("LLM_URL", f"http://localhost:{LLM_STUB_PORT}/analisar"),
-    "stub_port":    LLM_STUB_PORT,
-    "ollama_url":   os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate"),
-    "ollama_model": os.getenv("OLLAMA_MODEL", "llama3"),
-    "timeout":      int(os.getenv("LLM_TIMEOUT", "30")),
+    "provider":      os.getenv("LLM_PROVIDER", "simulado"),
+    "url":           os.getenv("LLM_URL", f"http://localhost:{LLM_STUB_PORT}/analisar"),
+    "stub_port":     LLM_STUB_PORT,
+    "ollama_url":    os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate"),
+    "ollama_model":  os.getenv("OLLAMA_MODEL", "llama3"),
+    "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
+    "gemini_model":  os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
+    "timeout":       int(os.getenv("LLM_TIMEOUT", "30")),
 }
 
 def get_host(servico: str) -> str:

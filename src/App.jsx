@@ -314,8 +314,10 @@ export default function App() {
   // Submit Document (Student simulates uploading file)
   const handleUploadDocument = async (e) => {
     e.preventDefault();
-    if (!subDocDeliveryId || !subDocText) {
-      alert('Selecione uma etapa do Cronograma e detalhe o arquivo.');
+    // O cronograma e OPCIONAL (responsabilidade do Orientador). A submissao NAO
+    // depende dele: o aluno pode submeter mesmo sem etapa selecionada.
+    if (!subDocText) {
+      alert('Detalhe o conteudo do documento.');
       return;
     }
 
@@ -329,7 +331,7 @@ export default function App() {
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          delivery_id: Number(subDocDeliveryId),
+          delivery_id: subDocDeliveryId ? Number(subDocDeliveryId) : null,
           version: subDocVersion,
           text: subDocText,
           student_id: user.id
@@ -339,7 +341,7 @@ export default function App() {
       if (res.ok) {
         const newSub = {
           id: data.submission_id || (Math.max(...submissions.map(s => s.id), 0) + 1),
-          delivery_id: Number(subDocDeliveryId),
+          delivery_id: subDocDeliveryId ? Number(subDocDeliveryId) : null,
           student_id: user.id,
           file_path: 'uploads/documento_sinal_tcc.pdf',
           version: Number(subDocVersion),
@@ -364,7 +366,7 @@ export default function App() {
         alert('Erro ao subir documento: ' + data.message);
       }
     } catch (err) {
-      alert('Erro de conexão ao enviar o documento para o barramento de eventos.');
+      alert('Erro de conexão ao enviar o documento para a malha de eventos.');
     }
   };
 
@@ -423,7 +425,7 @@ export default function App() {
         setNotifications([newNotif, ...notifications]);
 
         // Trigger on-screen toast notification
-        triggerToast(`O parecer oficial foi enviado com sucesso via barramento de eventos SINTCC para o aluno ${studentName}. Status: ${statusLabel}!`, 'success');
+        triggerToast(`O parecer oficial foi enviado com sucesso via malha de eventos SINTCC (coreografia) para o aluno ${studentName}. Status: ${statusLabel}!`, 'success');
 
         setAdvComment('');
         setSelectedSubId('');
@@ -546,12 +548,12 @@ export default function App() {
                   <span>Acesso Rápido para Simulação</span>
                 </div>
                 <p className="text-xs text-slate-400 mb-6">
-                  Selecione um perfil acadêmico para testar a integração do barramento de eventos e a IA integrada:
+                  Selecione um perfil acadêmico para testar a integração da malha de eventos (coreografia brokerless) e a IA integrada:
                 </p>
 
                 <div className="space-y-3">
                   <button 
-                    onClick={() => handleLogin('estudante@univ.edu', '123')}
+                    onClick={() => handleLogin('aluno@unifei.edu.br', 'aluno123')}
                     className="w-full text-left bg-slate-900 hover:bg-emerald-950/40 p-3 rounded-lg border border-slate-800 hover:border-emerald-500/40 transition group cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-1">
@@ -562,7 +564,7 @@ export default function App() {
                   </button>
 
                   <button 
-                    onClick={() => handleLogin('orientador@univ.edu', '123')}
+                    onClick={() => handleLogin('orientador@unifei.edu.br', 'orient123')}
                     className="w-full text-left bg-slate-900 hover:bg-teal-950/40 p-3 rounded-lg border border-slate-800 hover:border-teal-500/40 transition group cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-1">
@@ -573,14 +575,14 @@ export default function App() {
                   </button>
 
                   <button 
-                    onClick={() => handleLogin('coordenador@univ.edu', '123')}
+                    onClick={() => handleLogin('coord@unifei.edu.br', 'coord123')}
                     className="w-full text-left bg-slate-900 hover:bg-amber-950/40 p-3 rounded-lg border border-slate-800 hover:border-amber-500/40 transition group cursor-pointer"
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-bold text-white group-hover:text-amber-300">⚙️ Perfil do Coordenador</span>
                       <span className="text-[10px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded">Demo</span>
                     </div>
-                    <p className="text-xs text-slate-500">Definição do Cronograma Geral, Cadastros do Curso.</p>
+                    <p className="text-xs text-slate-500">Indicadores, gestão de bancas e relatórios gerenciais.</p>
                   </button>
                 </div>
               </div>
@@ -609,7 +611,7 @@ export default function App() {
                     type="email" 
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="ex: estudante@univ.edu"
+                    placeholder="ex: aluno@unifei.edu.br"
                     className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm focus:outline-none focus:border-emerald-500 text-white" 
                     required 
                   />
@@ -710,26 +712,18 @@ export default function App() {
                     </>
                   )}
 
-                  {user.role === 'coordinator' && (
-                    <button 
-                      onClick={() => setActiveTab('coordinator_schedule')}
-                      className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition cursor-pointer ${activeTab === 'coordinator_schedule' ? 'bg-emerald-600/10 text-emerald-300 border-l-4 border-emerald-500 font-semibold' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}
-                    >
-                      <PlusCircle className="h-4 w-4 text-emerald-400" />
-                      <span>Gerenciar Cronogramas</span>
-                    </button>
-                  )}
+                  {/* Cronograma/etapas: responsabilidade do ORIENTADOR (opcional), nao do Coordenador. */}
                 </nav>
               </div>
 
-              {/* Barramento de Eventos Terminal Log */}
+              {/* Malha de Eventos (coreografia brokerless) - log ao vivo */}
               <div className="bg-slate-900 p-3 rounded-lg border border-slate-800">
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1.5 flex items-center">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block mr-1.5 animate-ping"></span>
-                  Barramento SINTCC
+                  Malha SINTCC (brokerless)
                 </p>
                 <div className="font-mono text-[9px] text-slate-400 max-h-32 overflow-y-auto space-y-1">
-                  <p className="text-yellow-400">⚡ [Broker]: Ativo & Conectado</p>
+                  <p className="text-yellow-400">⚡ [Malha ZeroMQ]: coreografia ativa (sem broker)</p>
                   <p className="text-emerald-400">💬 [Sub]: Escutando "proposta_submetida"</p>
                   <p className="text-teal-400">💬 [Sub]: Escutando "feedback_enviado"</p>
                   <p className="text-slate-500">{`>>> Esperando canais...`}</p>
@@ -740,7 +734,7 @@ export default function App() {
             <div className="border-t border-slate-850 pt-4">
               <div className="flex items-center space-x-2 text-xs text-slate-400">
                 <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
-                <span>Banco Emulado Online</span>
+                <span>Persistência: MySQL / memória</span>
               </div>
             </div>
           </aside>
@@ -1304,14 +1298,13 @@ export default function App() {
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Tarefa do Cronograma</label>
-                        <select 
+                        <label className="block text-xs font-bold text-slate-400 mb-1.5 uppercase">Tarefa do Cronograma (opcional)</label>
+                        <select
                           className="w-full bg-slate-900 border border-slate-800 rounded-lg p-3 text-sm text-white focus:border-emerald-500"
                           value={subDocDeliveryId}
                           onChange={(e) => setSubDocDeliveryId(e.target.value)}
-                          required
                         >
-                          <option value="">-- Selecionar Etapa --</option>
+                          <option value="">-- Sem etapa (submissao livre) --</option>
                           {deliveries.map(d => (
                             <option key={d.id} value={d.id}>{d.name}</option>
                           ))}
