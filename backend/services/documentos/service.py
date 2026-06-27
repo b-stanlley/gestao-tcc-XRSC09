@@ -95,7 +95,8 @@ class ServicoDocumentos:
         ev = Evento(TipoEvento.VERSAO_SUBMETIDA, aluno_id=documento.tcc_id, operacao="versionar",
                     payload={"versao_id": numero, "numero": numero, "tipo": versao.tipo,
                              "texto": versao.arquivo, "caracteres": len(versao.arquivo or ""),
-                             "entrega_id": dados.get("payload", {}).get("entrega_id")})
+                             "entrega_id": dados.get("payload", {}).get("entrega_id"),
+                             "submission_id": dados.get("payload", {}).get("submission_id")})
         self.publicar(ev)
         log.info(f"versao v{numero} persistida; publicado {ev}")
 

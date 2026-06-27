@@ -30,13 +30,14 @@ def on_versao(dados):
     p_in = dados.get("payload", {})
     entrega_id = p_in.get("entrega_id")
     versao_id = p_in.get("versao_id") or p_in.get("id")
-    
+    submission_id = p_in.get("submission_id")   # id unico da submissao (correlacao com a interface)
+
     ultima_versao[aluno] = texto             # cache de fallback (demo sem MySQL)
     an = provedor.analisar(texto, "geral")   # monta prompt + consulta provedor de LLM
     ev = Evento(TipoEvento.RECOMENDACAO_IA_GERADA, aluno_id=aluno, operacao="recomendar",
                 payload={"recomendacoes": an.get("recomendacoes", []),
                          "score": an.get("score", 0), "observacoes": an.get("observacoes", ""),
-                         "entrega_id": entrega_id, "versao_id": versao_id})
+                         "entrega_id": entrega_id, "versao_id": versao_id, "submission_id": submission_id})
     pub.send_string(f"{ev.evento} {ev.to_json_str()}")
     log.info(f"recomendacao gerada p/ aluno {aluno}; publicado {ev}")
 

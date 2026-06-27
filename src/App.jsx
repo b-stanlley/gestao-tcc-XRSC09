@@ -1121,8 +1121,8 @@ export default function App() {
                                 <td className="px-4 py-3.5 text-xs italic">{sub.file_path}</td>
                                 <td className="px-4 py-3.5">
                                   {(() => {
-                                    const studentAnalyses = iaAnalyses.filter(a => String(a.student_id) === String(sub.student_id));
-                                    const latestAnalysis = studentAnalyses.length > 0 ? studentAnalyses[studentAnalyses.length - 1] : null;
+                                    const subAnalyses = iaAnalyses.filter(a => String(a.submission_id) === String(sub.id));
+                                    const latestAnalysis = subAnalyses.length > 0 ? subAnalyses[subAnalyses.length - 1] : null;
                                     if (!latestAnalysis) {
                                       return (
                                         <span className="text-[10px] text-slate-500 italic">Sem análise</span>
