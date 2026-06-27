@@ -69,6 +69,7 @@ _proposals_store = {}   # aluno_id -> dados da proposta
 _submissions_store = []
 _feedbacks_store = []
 _deliveries_store = []
+_ia_analyses_store = []  # pareceres automaticos da IA (coreografia)
 _store_lock = threading.Lock()
 
 
@@ -183,6 +184,32 @@ def _loop_sub():
                                 "text": p.get("texto"),
                                 "created_at": time.strftime("%d/%m/%Y")
                             })
+                    elif topico == TipoEvento.RECOMENDACAO_IA_GERADA.value:
+                        # Armazena o parecer automatico da IA para exibir na interface
+                        recs = p.get("recomendacoes", [])
+                        score = p.get("score", 0)
+                        obs = p.get("observacoes", "")
+                        ent_id = p.get("entrega_id")
+                        sub_id = p.get("versao_id")
+                        linhas = [f"📊 Score estimado: {score}/100"]
+                        if recs:
+                            linhas.append("\nRecomendações:")
+                            linhas += [f"• {r}" for r in recs]
+                        else:
+                            linhas.append("Nenhuma pendência crítica detectada.")
+                        if obs:
+                            linhas += ["", f"Observações: {obs}"]
+                        _ia_analyses_store.append({
+                            "id": int(time.time()),
+                            "student_id": aluno,
+                            "delivery_id": ent_id,
+                            "submission_id": sub_id,
+                            "score": score,
+                            "recomendacoes": recs,
+                            "observacoes": obs,
+                            "texto_formatado": "\n".join(linhas),
+                            "created_at": time.strftime("%d/%m/%Y %H:%M:%S")
+                        })
                     elif topico == TipoEvento.FEEDBACK_ENVIADO.value:
                         existente = None
                         sub_id = p.get("versao_id")
@@ -380,7 +407,7 @@ def gerar_relatorio(body, claims):
 
 def registrar_entrega_local(body):
     with _store_lock:
-        new_id = int(time.time()) % 100000
+        new_id = len(_deliveries_store) + 1
         delivery = {"id": new_id, "name": body.get("name"), 
                     "description": body.get("description"), "deadline": body.get("deadline")}
         _deliveries_store.append(delivery)
@@ -461,6 +488,8 @@ class Handler(BaseHTTPRequestHandler):
             with _store_lock: return self._send_json(200, _feedbacks_store)
         if path == "/api/deliveries":
             with _store_lock: return self._send_json(200, _deliveries_store)
+        if path == "/api/ia-analyses":
+            with _store_lock: return self._send_json(200, _ia_analyses_store)
         return self._serve_static(path)
 
     def do_POST(self):

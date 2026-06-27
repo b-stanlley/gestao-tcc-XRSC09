@@ -32,6 +32,8 @@ export default function App() {
   const [submissions, setSubmissions] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [feedbacks, setFeedbacks] = useState([]);
+  const [iaAnalyses, setIaAnalyses] = useState([]);
+  const [showIaModal, setShowIaModal] = useState(null); // string or null
   
   // Form states
   const [loginError, setLoginError] = useState('');
@@ -107,7 +109,8 @@ export default function App() {
         'proposals': setProposals,
         'submissions': setSubmissions,
         'feedbacks': setFeedbacks,
-        'deliveries': setDeliveries
+        'deliveries': setDeliveries,
+        'ia-analyses': setIaAnalyses
       };
 
       for (const [path, setter] of Object.entries(endpoints)) {
@@ -215,7 +218,7 @@ export default function App() {
     if (!delName || !delDesc) return;
 
     const cleanName = delName.replace(/^Entrega\s*\d*:\s*/i, '').replace(/^\[TCC:[^\]]+\] Envio:\s*/i, '');
-    const formattedName = `Entrega ${Math.max(...deliveries.map(d => d.id), 0) + 1}: ${cleanName}`;
+    const formattedName = `Entrega ${deliveries.length + 1}: ${cleanName}`;
 
     try {
       const res = await fetch('/api/deliveries', {
@@ -229,7 +232,7 @@ export default function App() {
       const data = await res.json();
       if (res.ok) {
         const newDel = {
-          id: data.delivery_id || (Math.max(...deliveries.map(d => d.id), 0) + 1),
+          id: data.delivery_id || (deliveries.length + 1),
           name: formattedName,
           description: delDesc,
           deadline: delDeadline
@@ -261,7 +264,7 @@ export default function App() {
     }
 
     const studentName = getStudentName(selectedProp.student_id);
-    const taskName = `Entrega ${Math.max(...deliveries.map(d => d.id), 0) + 1}: ${advTaskDocType}`;
+    const taskName = `Entrega ${deliveries.length + 1}: ${advTaskDocType}`;
     const taskDescriptionText = `Tarefa criada pelo Orientador institucional para o aluno. Tipo de documento requerido: ${advTaskDocType}. Instruções: ${advTaskDesc || 'Desenvolver a próxima etapa conforme diretrizes.'}`;
 
     try {
@@ -280,7 +283,7 @@ export default function App() {
       const data = await res.json();
       if (res.ok) {
         const newDel = {
-          id: data.delivery_id || (Math.max(...deliveries.map(d => d.id), 0) + 1),
+          id: data.delivery_id || (deliveries.length + 1),
           name: taskName,
           description: taskDescriptionText,
           deadline: advTaskDeadline,
@@ -780,7 +783,7 @@ export default function App() {
                     <p className="text-3xl font-extrabold text-white mt-1">
                       {user?.role === 'student' ? (
                         `${deliveries.filter(d => {
-                          if (d.id === 1 || d.name.toLowerCase().includes('proposta')) {
+                          if (d.name.toLowerCase().includes('proposta')) {
                             return proposals.some(p => p.student_id === user.id);
                           }
                           return submissions.some(s => String(s.delivery_id) === String(d.id) && s.student_id === user.id);
@@ -835,7 +838,7 @@ export default function App() {
                           {deliveries.map(d => {
                             const completed = (() => {
                               if (!user) return false;
-                              if (d.id === 1 || d.name.toLowerCase().includes('proposta')) {
+                              if (d.name.toLowerCase().includes('proposta')) {
                                 return proposals.some(p => p.student_id === user.id);
                               }
                               return submissions.some(s => String(s.delivery_id) === String(d.id) && s.student_id === user.id);
@@ -866,7 +869,7 @@ export default function App() {
                                   {user.role === 'student' && (
                                     <button 
                                       onClick={() => {
-                                        if (d.id === 1 || d.name.toLowerCase().includes('proposta')) {
+                                        if (d.name.toLowerCase().includes('proposta')) {
                                           setActiveTab('proposal');
                                         } else {
                                           setSubDocDeliveryId(d.id.toString());
@@ -875,7 +878,7 @@ export default function App() {
                                       }}
                                       className="text-emerald-400 hover:text-emerald-300 font-bold underline cursor-pointer"
                                     >
-                                      {(d.id === 1 || d.name.toLowerCase().includes('proposta')) 
+                                      {d.name.toLowerCase().includes('proposta') 
                                         ? (completed ? 'Reenviar Proposta →' : 'Submeter Proposta →') 
                                         : (completed ? 'Reenviar Documento →' : 'Submeter Documento →')}
                                     </button>
@@ -1004,9 +1007,32 @@ export default function App() {
                                         )}
                                       </td>
                                       <td className="px-3 py-3.5 text-center">
-                                        <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/15 px-2 py-0.5 rounded text-[10px] font-mono">
-                                          Elegível & Ok
-                                        </span>
+                                        {(() => {
+                                          const studentAnalyses = iaAnalyses.filter(a => String(a.student_id) === String(studentId));
+                                          const latestAnalysis = studentAnalyses.length > 0 ? studentAnalyses[studentAnalyses.length - 1] : null;
+                                          if (!latestAnalysis) {
+                                            return (
+                                              <span className="bg-slate-700/30 text-slate-500 border border-slate-700/30 px-2 py-0.5 rounded text-[10px] font-mono italic">
+                                                Aguardando IA...
+                                              </span>
+                                            );
+                                          }
+                                          const score = latestAnalysis.score || 0;
+                                          const scoreColor = score >= 70 ? 'emerald' : score >= 40 ? 'amber' : 'red';
+                                          return (
+                                            <div className="flex flex-col items-center gap-1">
+                                              <span className={`bg-${scoreColor}-500/10 text-${scoreColor}-400 border border-${scoreColor}-500/15 px-2 py-0.5 rounded text-[10px] font-mono`}>
+                                                Score: {score}/100
+                                              </span>
+                                              <button
+                                                onClick={() => setShowIaModal(latestAnalysis.texto_formatado)}
+                                                className="text-[9px] text-sky-400 hover:text-sky-300 underline cursor-pointer transition"
+                                              >
+                                                Ver Parecer Completo
+                                              </button>
+                                            </div>
+                                          );
+                                        })()}
                                       </td>
                                       <td className="px-3 py-3.5 text-right whitespace-nowrap">
                                         <div className="flex justify-end gap-2">
@@ -1015,7 +1041,7 @@ export default function App() {
                                               onClick={() => {
                                                 setSelectedStudentId(studentId);
                                                 setSelectedSubId('');
-                                                setAdvComment(`Parecer preliminar sobre o tema de TCC "${prop.title}": Proposta aprovada para desenvolvimento.`);
+                                                
                                                 setAdvStatus('approved');
                                                 setActiveTab('advisor_feedback');
                                               }}
@@ -1029,7 +1055,6 @@ export default function App() {
                                               onClick={() => {
                                                 setSelectedStudentId(studentId);
                                                 setSelectedSubId(latestSub.id.toString());
-                                                setAdvComment(`Feedback acadêmico para o primeiro rascunho (V${latestSub.version}.0) apresentado.`);
                                                 setAdvStatus('approved');
                                                 setActiveTab('advisor_feedback');
                                               }}
@@ -1065,27 +1090,55 @@ export default function App() {
                     <table className="w-full text-left text-sm text-slate-400">
                       <thead className="text-xs text-slate-500 uppercase bg-slate-900 border-b border-slate-850">
                         <tr>
-                          <th className="px-4 py-3">Código / Etapa</th>
+                          <th className="px-4 py-3">Documento / Etapa</th>
                           <th className="px-4 py-3">Aluno Autor</th>
                           <th className="px-4 py-3">Versão</th>
                           <th className="px-4 py-3">Rascunho Oficial</th>
+                          <th className="px-4 py-3">Parecer IA</th>
                           <th className="px-4 py-3">Status da Submissão</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-850">
                         {submissions.length === 0 ? (
                           <tr>
-                            <td colSpan="5" className="text-center py-6 text-slate-500 text-xs">Simule um upload na barra de submeter para gerar pareceres.</td>
+                            <td colSpan="6" className="text-center py-6 text-slate-500 text-xs">Simule um upload na barra de submeter para gerar pareceres.</td>
                           </tr>
                         ) : (
                           submissions.map(sub => {
                             const correspondFb = feedbacks.find(f => String(f.submission_id) === String(sub.id));
                             return (
                               <tr key={sub.id} className="hover:bg-slate-900/40">
-                                <td className="px-4 py-3.5 font-semibold text-white">Etapa #{sub.delivery_id}</td>
+                                <td className="px-4 py-3.5 font-semibold text-white">
+                                  {(() => {
+                                    const delivery = deliveries.find(d => String(d.id) === String(sub.delivery_id));
+                                    return delivery 
+                                      ? (delivery.name.includes(':') ? delivery.name.split(':')[1].trim() : delivery.name)
+                                      : `Etapa #${sub.delivery_id || 'Geral'}`;
+                                  })()}
+                                </td>
                                 <td className="px-4 py-3.5">{user.role === 'student' ? 'Estudante Teste' : getStudentName(sub.student_id)}</td>
                                 <td className="px-4 py-3.5 font-mono text-xs">{sub.version}.0</td>
                                 <td className="px-4 py-3.5 text-xs italic">{sub.file_path}</td>
+                                <td className="px-4 py-3.5">
+                                  {(() => {
+                                    const studentAnalyses = iaAnalyses.filter(a => String(a.student_id) === String(sub.student_id));
+                                    const latestAnalysis = studentAnalyses.length > 0 ? studentAnalyses[studentAnalyses.length - 1] : null;
+                                    if (!latestAnalysis) {
+                                      return (
+                                        <span className="text-[10px] text-slate-500 italic">Sem análise</span>
+                                      );
+                                    }
+                                    return (
+                                      <button
+                                        onClick={() => setShowIaModal(latestAnalysis.texto_formatado)}
+                                        className="flex items-center gap-1 text-[10px] text-sky-400 hover:text-sky-300 underline cursor-pointer transition"
+                                      >
+                                        <Sparkles className="h-3 w-3" />
+                                        Ver (Score: {latestAnalysis.score})
+                                      </button>
+                                    );
+                                  })()}
+                                </td>
                                 <td className="px-4 py-3.5">
                                   {correspondFb ? (
                                     <div className="space-y-1">
@@ -1726,6 +1779,38 @@ export default function App() {
         </div>
       )}
       
+      {/* Modal do Parecer da IA */}
+      {showIaModal && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowIaModal(null)}>
+          <div className="bg-slate-950 border border-emerald-500/30 rounded-2xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-gradient-to-r from-emerald-900/20 to-slate-950">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-emerald-400 animate-pulse" />
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">Parecer Automático da IA</h3>
+              </div>
+              <button 
+                onClick={() => setShowIaModal(null)} 
+                className="text-slate-400 hover:text-white text-lg font-bold cursor-pointer hover:bg-slate-800 duration-150 px-2 py-0.5 rounded"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="px-6 py-5 max-h-[60vh] overflow-y-auto">
+              <pre className="whitespace-pre-wrap text-sm text-slate-300 font-sans leading-relaxed">{showIaModal}</pre>
+            </div>
+            <div className="px-6 py-3 border-t border-slate-800 bg-slate-900/50 flex justify-between items-center">
+              <span className="text-[10px] text-slate-500 italic">Análise gerada automaticamente pela coreografia ZeroMQ (Serviço de IA)</span>
+              <button 
+                onClick={() => setShowIaModal(null)} 
+                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-1.5 rounded-lg text-xs cursor-pointer transition"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
