@@ -125,7 +125,15 @@ class GeminiProvider(ProvedorLLM):
             data.setdefault("observacoes", "")
             return data
         except Exception as e:
-            logger.warning(f"Gemini indisponivel ({e}); usando fallback simulado.")
+            import urllib.error as _error
+            if isinstance(e, _error.HTTPError):
+                try:
+                    corpo_erro = e.read().decode("utf-8")
+                except Exception:
+                    corpo_erro = "não foi possível ler o corpo da resposta"
+                logger.warning(f"Gemini indisponível - Erro HTTP {e.code}: {e.reason} | Resposta detalhada: {corpo_erro} | usando fallback simulado.")
+            else:
+                logger.warning(f"Gemini indisponível ({e}); usando fallback simulado.")
             return SimuladoProvider().analisar(texto, modo)
 
 

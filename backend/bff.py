@@ -69,6 +69,7 @@ _proposals_store = {}   # aluno_id -> dados da proposta
 _submissions_store = []
 _feedbacks_store = []
 _deliveries_store = []
+_ia_analyses_store = []  # pareceres automaticos da IA (coreografia)
 _store_lock = threading.Lock()
 
 
@@ -160,22 +161,24 @@ def _loop_sub():
                     elif topico == TipoEvento.PROPOSTA_REJEITADA.value:
                         if aluno in _proposals_store: _proposals_store[aluno]["status"] = "adjustments"
                     elif topico == TipoEvento.VERSAO_SUBMETIDA.value:
-                        # Evita duplicatas buscando por student_id e delivery_id
-                        existente = None
+                        # Correlaciona com a submissao criada no POST pelo submission_id (id unico).
+                        # NAO deduplica por (aluno, etapa) — cada submissao e um registro proprio.
+                        sid = p.get("submission_id")
                         ent_id = p.get("entrega_id")
-                        for s in _submissions_store:
-                            if str(s.get("student_id")) == str(aluno) and str(s.get("delivery_id")) == str(ent_id):
-                                existente = s
-                                break
-                        
+                        existente = None
+                        if sid is not None:
+                            for s in _submissions_store:
+                                if str(s.get("id")) == str(sid):
+                                    existente = s
+                                    break
                         if existente:
-                            existente["id"] = p.get("versao_id") or existente["id"]
-                            existente["version"] = p.get("numero") or existente["version"]
+                            if p.get("numero"):
+                                existente["versao_db"] = p.get("numero")   # nº do versionamento no banco
                             if p.get("texto"):
                                 existente["text"] = p.get("texto")
                         else:
                             _submissions_store.append({
-                                "id": p.get("versao_id") or p.get("id") or int(time.time()),
+                                "id": sid or p.get("versao_id") or int(time.time() * 1000),
                                 "delivery_id": ent_id,
                                 "student_id": aluno,
                                 "file_path": "uploads/documento.pdf",
@@ -183,6 +186,32 @@ def _loop_sub():
                                 "text": p.get("texto"),
                                 "created_at": time.strftime("%d/%m/%Y")
                             })
+                    elif topico == TipoEvento.RECOMENDACAO_IA_GERADA.value:
+                        # Armazena o parecer automatico da IA para exibir na interface
+                        recs = p.get("recomendacoes", [])
+                        score = p.get("score", 0)
+                        obs = p.get("observacoes", "")
+                        ent_id = p.get("entrega_id")
+                        sub_id = p.get("submission_id") or p.get("versao_id")
+                        linhas = [f"📊 Score estimado: {score}/100"]
+                        if recs:
+                            linhas.append("\nRecomendações:")
+                            linhas += [f"• {r}" for r in recs]
+                        else:
+                            linhas.append("Nenhuma pendência crítica detectada.")
+                        if obs:
+                            linhas += ["", f"Observações: {obs}"]
+                        _ia_analyses_store.append({
+                            "id": int(time.time()),
+                            "student_id": aluno,
+                            "delivery_id": ent_id,
+                            "submission_id": sub_id,
+                            "score": score,
+                            "recomendacoes": recs,
+                            "observacoes": obs,
+                            "texto_formatado": "\n".join(linhas),
+                            "created_at": time.strftime("%d/%m/%Y %H:%M:%S")
+                        })
                     elif topico == TipoEvento.FEEDBACK_ENVIADO.value:
                         existente = None
                         sub_id = p.get("versao_id")
@@ -261,34 +290,26 @@ def submeter_versao(body, claims):
     aluno = body.get("student_id") or (claims or {}).get("id")
     texto = body.get("text") or body.get("texto") or ""
     delivery_id = body.get("delivery_id")
-    
-    sub_id = int(time.time()) % 100000
-    
-    # Salva na lista em memória de imediato para resolver condição de corrida no polling do React
+
+    # id UNICO por submissao: cada envio e um registro proprio (nao sobrepoe outro).
+    # O mesmo id viaja na malha (versao_recebida -> versao_submetida -> recomendacao_ia_gerada)
+    # para o BFF correlacionar o evento com esta submissao, sem duplicar nem sobrescrever.
+    sub_id = int(time.time() * 1000)
+
     with _store_lock:
-        existente = None
-        for s in _submissions_store:
-            if str(s.get("student_id")) == str(aluno) and str(s.get("delivery_id")) == str(delivery_id):
-                existente = s
-                break
-        
-        if existente:
-            existente["text"] = texto
-            existente["version"] = existente.get("version", 1) + 1
-        else:
-            _submissions_store.append({
-                "id": sub_id,
-                "delivery_id": delivery_id,
-                "student_id": aluno,
-                "file_path": "uploads/documento.pdf",
-                "version": 1,
-                "text": texto,
-                "created_at": time.strftime("%d/%m/%Y")
-            })
+        _submissions_store.append({
+            "id": sub_id,
+            "delivery_id": delivery_id,
+            "student_id": aluno,
+            "file_path": "uploads/documento.pdf",
+            "version": body.get("version") or 1,
+            "text": texto,
+            "created_at": time.strftime("%d/%m/%Y")
+        })
 
     _publicar(TipoEvento.VERSAO_RECEBIDA, aluno, "submeter",
               {"texto": texto, "tipo": body.get("tipo", "desenvolvimento"), "caracteres": len(texto),
-               "entrega_id": delivery_id})
+               "entrega_id": delivery_id, "submission_id": sub_id})
     return 202, {"success": True, "submission_id": sub_id}
 
 
@@ -380,7 +401,7 @@ def gerar_relatorio(body, claims):
 
 def registrar_entrega_local(body):
     with _store_lock:
-        new_id = int(time.time()) % 100000
+        new_id = len(_deliveries_store) + 1
         delivery = {"id": new_id, "name": body.get("name"), 
                     "description": body.get("description"), "deadline": body.get("deadline")}
         _deliveries_store.append(delivery)
@@ -461,6 +482,8 @@ class Handler(BaseHTTPRequestHandler):
             with _store_lock: return self._send_json(200, _feedbacks_store)
         if path == "/api/deliveries":
             with _store_lock: return self._send_json(200, _deliveries_store)
+        if path == "/api/ia-analyses":
+            with _store_lock: return self._send_json(200, _ia_analyses_store)
         return self._serve_static(path)
 
     def do_POST(self):
