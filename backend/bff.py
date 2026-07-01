@@ -193,7 +193,7 @@ def _loop_sub():
                         obs = p.get("observacoes", "")
                         ent_id = p.get("entrega_id")
                         sub_id = p.get("submission_id") or p.get("versao_id")
-                        linhas = [f"📊 Score estimado: {score}/100"]
+                        linhas = [f"Score estimado: {score}/100"]
                         if recs:
                             linhas.append("\nRecomendações:")
                             linhas += [f"• {r}" for r in recs]
@@ -265,7 +265,7 @@ def _publicar(tipo_evento, aluno_id, operacao, payload):
     ev = Evento(tipo_evento, aluno_id=int(aluno_id or 0), operacao=operacao, payload=payload)
     with pub_lock:
         pub.send_string(f"{ev.evento} {ev.to_json_str()}")
-    log.info(f"📤 injetado na malha: {ev}")
+    log.info(f"injetado na malha: {ev}")
     return ev.id
 
 
@@ -412,7 +412,7 @@ def analisar_ia(body, claims):
     texto = body.get("docContent") or body.get("texto") or ""
     an = provedor.analisar(texto, "geral")
     recs = an.get("recomendacoes", [])
-    linhas = [f"📊 Score estimado: {an.get('score', 0)}/100",
+    linhas = [f"Score estimado: {an.get('score', 0)}/100",
               f"Status: {an.get('status', '?')}", ""]
     if recs:
         linhas.append("Recomendações:")
@@ -577,7 +577,7 @@ def main():
     threading.Thread(target=_loop_sub, daemon=True).start()
     time.sleep(0.3)
     server = ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), Handler)
-    log.info(f"✅ BFF HTTP em http://localhost:{HTTP_PORT}  (PUB 5570 | DEALER 5561 | PUSH 5567)")
+    log.info(f"BFF HTTP em http://localhost:{HTTP_PORT}  (PUB 5570 | DEALER 5561 | PUSH 5567)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
