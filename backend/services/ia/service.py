@@ -45,16 +45,21 @@ def on_feedback(dados):
     if not repo.registrar_evento(dados):     # idempotencia
         return
     aluno = dados["aluno_id"]
+    # A DECISAO DO ORIENTADOR determina o resultado: pendencias sao disparadas
+    # apenas quando o parecer NAO e aprovado. A analise da IA apenas enriquece
+    # as recomendacoes/score, mas nao decide o tipo do evento.
+    decisao = (dados.get("payload", {}) or {}).get("decisao")
     # le a versao vigente do banco (fonte da verdade); cai no cache local so no modo offline
     texto = repo.texto_versao_vigente(aluno) or ultima_versao.get(aluno, "")
     an = provedor.analisar(texto, "feedback_atendimento")
-    atendido = an.get("status") == "apto"
+    atendido = (decisao == "aprovado")
     tipo = TipoEvento.FEEDBACK_ATENDIDO if atendido else TipoEvento.PENDENCIAS_IDENTIFICADAS
     ev = Evento(tipo, aluno_id=aluno, operacao="reavaliar",
-                payload={"status": an.get("status"), "recomendacoes": an.get("recomendacoes", []),
+                payload={"status": "apto" if atendido else "pendente", "decisao": decisao,
+                         "recomendacoes": an.get("recomendacoes", []),
                          "score": an.get("score", 0)})
     pub.send_string(f"{ev.evento} {ev.to_json_str()}")
-    log.info(f"reavaliacao: {'feedback_atendido' if atendido else 'pendencias_identificadas'} p/ aluno {aluno}")
+    log.info(f"reavaliacao (decisao={decisao}): {'feedback_atendido' if atendido else 'pendencias_identificadas'} p/ aluno {aluno}")
 
 if __name__ == "__main__":
     poller = zmq.Poller()
